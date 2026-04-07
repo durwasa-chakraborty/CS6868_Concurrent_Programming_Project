@@ -1,0 +1,17 @@
+; Library: batch bounded blocking queue implementation
+(library
+ (name Segment_queue_synchronizer)
+ (wrapped false)
+ (modules segment_queue_synchronizer)
+ (ocamlopt_flags (:standard -w -32))
+ (ocamlc_flags (:standard -w -32)))
+
+
+
+; Executable: manual concurrent tests
+(executable
+ (name smoke_test)
+ (modules smoke_test)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32))
+ (libraries Segment_queue_synchronizer unix))
