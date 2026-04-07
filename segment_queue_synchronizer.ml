@@ -110,10 +110,11 @@ let on_slot_cleaned seg =
     (match Atomic.get seg.prev with
      | Some prev_seg ->
        let rec try_unlink () =
-         match Atomic.get prev_seg.next with
+         let current = Atomic.get prev_seg.next in
+         match current with
          | Some cur when cur == seg ->
            let next_opt = Atomic.get seg.next in
-           if not (Atomic.compare_and_set prev_seg.next (Some seg) next_opt)
+           if not (Atomic.compare_and_set prev_seg.next current next_opt)
            then try_unlink ()
          | _ -> ()
        in
@@ -425,7 +426,8 @@ and try_resume_impl (sqs : 'a t) (value : 'a) (adjust_resume_idx : bool) : try_r
       (* ---- Empty cell: resume arrived before suspend ---- *)
       | Empty ->
         (* Park the value and either finish (ASYNC) or spin-wait (SYNC). *)
-        if seg_cas seg i Empty (Value value) then begin
+        let parked_value = Value value in
+        if seg_cas seg i Empty parked_value then begin
           if sqs.resume_mode = Async then begin
             keep_going := false; result := TryResumeSuccess
           end else begin
@@ -442,7 +444,7 @@ and try_resume_impl (sqs : 'a t) (value : 'a) (adjust_resume_idx : bool) : try_r
               keep_going := false; result := TryResumeSuccess
             end else begin
               (* Timed out: try to mark as broken. *)
-              if seg_cas seg i (Value value) Broken then begin
+              if seg_cas seg i parked_value Broken then begin
                 keep_going := false; result := TryResumeBroken
               end else begin
                 (* Suspend grabbed it in the last moment. *)

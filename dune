@@ -6,6 +6,14 @@
  (ocamlopt_flags (:standard -w -32))
  (ocamlc_flags (:standard -w -32)))
 
+(library
+ (name segment_queue_synchronizer_expect_test)
+ (modules segment_queue_synchronizer_expect_test)
+ (libraries Segment_queue_synchronizer)
+ (inline_tests)
+ (preprocess (pps ppx_expect))
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
 
 
 ; Executable: manual concurrent tests
