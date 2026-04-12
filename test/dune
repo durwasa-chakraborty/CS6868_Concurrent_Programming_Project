@@ -1,10 +1,3 @@
-; Library: batch bounded blocking queue implementation
-(library
- (name Segment_queue_synchronizer)
- (wrapped false)
- (modules segment_queue_synchronizer)
- (ocamlopt_flags (:standard -w -32))
- (ocamlc_flags (:standard -w -32)))
 
 (library
  (name segment_queue_synchronizer_expect_test)
