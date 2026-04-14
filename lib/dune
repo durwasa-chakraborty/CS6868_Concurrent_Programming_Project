@@ -2,6 +2,6 @@
 (library
  (name Segment_queue_synchronizer)
  (wrapped false)
- (modules segment_queue_synchronizer)
+ (modules light_thread segment_queue_synchronizer sqs_effects)
  (ocamlopt_flags (:standard -w -32))
  (ocamlc_flags (:standard -w -32)))
