@@ -335,9 +335,15 @@ and try_resume_impl (sqs : 'a t) (value : 'a) (adjust : bool) : try_resume_resul
           (* SYNC: spin-wait for a concurrent suspend to claim the value. *)
           let rec spin n =
             if n = 0 then
-              if Segment.cas seg i (Value value) Broken
-              then TryResumeBroken
-              else TryResumeSuccess   (* suspend grabbed it at the last instant *)
+              (* Read the cell to get the actual [Value _] block to CAS against.
+                 A reconstructed [Value value] would be a different heap block
+                 and the CAS (which uses physical equality) would never match. *)
+              match Segment.get seg i with
+              | (Value _) as curr ->
+                if Segment.cas seg i curr Broken
+                then TryResumeBroken
+                else TryResumeSuccess   (* suspend grabbed it at the last instant *)
+              | _ -> TryResumeSuccess   (* already Taken or otherwise consumed *)
             else
               match Segment.get seg i with
               | Taken -> TryResumeSuccess
@@ -361,30 +367,21 @@ and try_resume_impl (sqs : 'a t) (value : 'a) (adjust : bool) : try_resume_resul
       (* ---------------------------------------------------------------- *)
       (*  Live waiter — attempt to resume the continuation                *)
       (* ---------------------------------------------------------------- *)
-      | Waiter k ->
+      | Waiter k as curr ->
         (* Atomically claim the cell so [handle_cancellation] cannot
-           discontinue the continuation after we decide to resume it. *)
-        if not (Segment.cas seg i (Waiter k) Resumed) then cell_loop ()
+           discontinue the continuation after we decide to resume it.
+           We CAS against [curr] (the heap block we just read) rather than
+           a freshly-reconstructed [Waiter k], because [Atomic.compare_and_set]
+           uses physical equality and a new allocation would never match. *)
+        if not (Segment.cas seg i curr Resumed) then cell_loop ()
         else begin
-          (* Deliver the value.  [Cancelled] propagates if the continuation
-             raises it during dispatch (prompt cancellation). *)
-          let delivered =
-            match Light_thread.resume k value with
-            | ()                  -> true
-            | exception Cancelled -> false
-          in
-          if delivered then
-            TryResumeSuccess
-          else begin
-            match sqs.cancellation_mode with
-            | Simple -> TryResumeCancelled
-            | Smart  ->
-              if sqs.on_cancellation () then begin
-                if not (resume sqs value) then sqs.return_value value
-              end else
-                return_refused_value sqs value;
-              TryResumeSuccess
-          end
+          (* Eio's enqueue is asynchronous: [Light_thread.resume k value]
+             schedules the fibre and always returns unit.  The "prompt
+             cancellation" path that caught [Cancelled] synchronously from
+             [Effect.Deep.continue] no longer exists in this model, so we
+             unconditionally report success. *)
+          Light_thread.resume k value;
+          TryResumeSuccess
         end
 
       (* ---------------------------------------------------------------- *)
@@ -426,8 +423,10 @@ let try_mark_cancelling seg i =
   let rec loop () =
     match Segment.get seg i with
     | Resumed      -> false
-    | Waiter k     ->
-      if Segment.cas seg i (Waiter k) (Cancelling k) then true
+    | Waiter k as curr ->
+      (* CAS against [curr] (the captured heap block), not a reconstructed
+         [Waiter k] — see the equivalent branch in [try_resume_impl]. *)
+      if Segment.cas seg i curr (Cancelling k) then true
       else loop ()           (* CAS race: retry *)
     | Cancelling _ -> true   (* another thread already started this *)
     | _            -> false
@@ -626,101 +625,3 @@ end (* Debug *)
 let pp_cell_state = Debug.pp_cell_state
 let dump          = Debug.dump
 
-(* ====================================================================== *)
-(*  13.  Semaphore                                                         *)
-(* ====================================================================== *)
-
-(** A fair counting semaphore built on top of SQS.
-
-    [acquire] suspends the caller if no permits are available.
-    [release] delivers a permit to the next waiter, or increments the
-    counter if none is waiting.
-
-    Callers of [acquire] must be running inside a {!run} handler. *)
-module Semaphore = struct
-
-  type t = {
-    sqs     : unit sqs;
-    permits : int Atomic.t;
-  }
-
-  let make n =
-    (* ASYNC: [release] returns immediately after depositing the permit.
-       SMART: if an acquirer cancels, [on_cancellation] returns the permit. *)
-    let t_ref = ref None in
-    let sqs =
-      make
-        ~resume_mode:Async
-        ~cancellation_mode:Smart
-        ~on_cancellation:(fun () ->
-          let t = match !t_ref with Some t -> t | None -> assert false in
-          let rec try_inc () =
-            let cur = Atomic.get t.permits in
-            if not (Atomic.compare_and_set t.permits cur (cur + 1))
-            then try_inc ()
-          in
-          try_inc (); true)
-        ~return_value:(fun () ->
-          let t = match !t_ref with Some t -> t | None -> assert false in
-          ignore (Atomic.fetch_and_add t.permits 1))
-        ()
-    in
-    let t = { sqs; permits = Atomic.make n } in
-    t_ref := Some t;
-    t
-
-  (** [acquire t] decrements the permit count.  If it reaches zero (or
-      below), the calling fibre suspends until [release] delivers a permit.
-      Must be called from within a {!run} handler. *)
-  let acquire t =
-    let p = Atomic.fetch_and_add t.permits (-1) in
-    if p > 0 then ()
-    else let (_ : unit) = suspend t.sqs in ()
-
-  (** [release t] increments the permit count and delivers a permit to the
-      next waiting fibre, if any. *)
-  let release t =
-    let p = Atomic.fetch_and_add t.permits 1 in
-    if p < 0 then ignore (resume t.sqs ())
-
-end (* Semaphore *)
-
-(* ====================================================================== *)
-(*  14.  Mutex                                                             *)
-(* ====================================================================== *)
-
-(** A fair mutex backed by SQS.
-
-    [lock callback] acquires the mutex and runs [callback] under it.
-    [unlock] releases the mutex and wakes the next queued waiter, if any.
-
-    The callback-style API avoids the need to pair every [lock] with an
-    [unlock] manually, mirroring coroutine-scoped critical sections in Kotlin.
-    If the mutex is contended, [lock] installs a {!run} handler internally so
-    [suspend] can park the caller. *)
-module Mutex = struct
-
-  type t = {
-    sqs    : unit sqs;
-    locked : bool Atomic.t;
-  }
-
-  let make () =
-    { sqs    = make ~resume_mode:Async ~cancellation_mode:Smart ()
-    ; locked = Atomic.make false
-    }
-
-  let lock m callback =
-    if Atomic.compare_and_set m.locked false true then
-      callback ()   (* acquired immediately — no suspension needed *)
-    else
-      run (fun () ->
-        match suspend m.sqs with
-        | ()                  -> callback ()
-        | exception Cancelled -> ())
-
-  let unlock m =
-    if not (resume m.sqs ()) then
-      Atomic.set m.locked false
-
-end (* Mutex *)

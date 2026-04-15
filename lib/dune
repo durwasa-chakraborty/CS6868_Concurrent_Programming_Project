@@ -2,6 +2,9 @@
 (library
  (name Segment_queue_synchronizer)
  (wrapped false)
- (modules light_thread segment_queue_synchronizer sqs_effects)
+ (modules light_thread segment_queue_synchronizer sqs_effects
+          semaphore mutex count_down_latch barrier
+          blocking_queue_pool blocking_stack_pool)
+ (libraries eio eio_main)
  (ocamlopt_flags (:standard -w -32))
  (ocamlc_flags (:standard -w -32)))
