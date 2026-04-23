@@ -6,7 +6,8 @@
         smoke cross-domain-smoke \
         lin-semaphore lin-latch lin-barrier lin-pool \
         qcheck-lin-semaphore qcheck-lin-latch \
-        manual-semaphore manual-latch manual-barrier manual-pool manual-mutex
+        manual-semaphore manual-latch manual-barrier manual-pool manual-mutex \
+        bench bench-build bench-java bench-ocaml bench-run bench-plot bench-clean
 
 # -----------------------------------------------------------------------------
 # Defaults
@@ -107,6 +108,33 @@ manual-mutex:
 	dune exec test/mutex_manual_test.exe
 
 # -----------------------------------------------------------------------------
+# Task 6 — OCaml SQS vs Java AQS benchmark suite
+# -----------------------------------------------------------------------------
+
+bench: bench-build bench-run bench-plot
+
+bench-build: bench-java bench-ocaml
+
+bench-java:
+	@echo "=== Task 6: building Java benchmark classes ==="
+	benchmark/java/build.sh
+
+bench-ocaml:
+	@echo "=== Task 6: building OCaml benchmark driver ==="
+	dune build benchmark/ocaml
+
+bench-run:
+	@echo "=== Task 6: running benchmarks (writes benchmark/results/summary.csv) ==="
+	bash benchmark/run_all.sh
+
+bench-plot:
+	@echo "=== Task 6: regenerating plots from summary.csv ==="
+	python3 benchmark/plot.py benchmark/results/summary.csv benchmark/results/plots
+
+bench-clean:
+	rm -rf benchmark/java/classes benchmark/results
+
+# -----------------------------------------------------------------------------
 # Help
 # -----------------------------------------------------------------------------
 
@@ -142,3 +170,12 @@ help:
 	@echo "  make manual-barrier        rendezvous, excess arrivals"
 	@echo "  make manual-pool           FIFO/LIFO order, no lost items, stress"
 	@echo "  make manual-mutex          mutual excl, cross-domain wakeup"
+	@echo ""
+	@echo "Task 6 — benchmarks (OCaml SQS vs Java AQS):"
+	@echo "  make bench                 build + run + plot"
+	@echo "  make bench-build           compile Java + OCaml drivers"
+	@echo "  make bench-java            compile only Java"
+	@echo "  make bench-ocaml           compile only OCaml"
+	@echo "  make bench-run             run benchmarks; writes summary.csv"
+	@echo "  make bench-plot            regenerate PNGs from summary.csv"
+	@echo "  make bench-clean           remove classes/ and results/"

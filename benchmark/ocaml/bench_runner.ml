@@ -93,38 +93,68 @@ let () =
   end;
 
   (* --------------------------------------------------------------- *)
-  (* Blocking queue pool — producer/consumer                          *)
+  (* Blocking queue / stack pool — producer/consumer in short cycles. *)
+  (* The queue pool uses a fixed-size slot array (1024); long-running *)
+  (* producer bursts overrun it, so each cycle uses a fresh pool and  *)
+  (* bounded pairs to stay well under the limit.                      *)
   (* --------------------------------------------------------------- *)
-  if wanted "BlockingQueuePool" then begin
+  let run_pool_bench ~primitive ~workload ~make_pool ~put ~retrieve
+      ~threads:t =
+    if t >= 2 then
+      for r = 0 to !repeats - 1 do
+        let half            = max 1 (t / 2) in
+        let pairs_per_cycle = 300 in            (* << slot_count=1024 *)
+        let cycles          = 40 in
+        let started_at      = Bench.now_ns () in
+        for _ = 1 to cycles do
+          let pool = make_pool () in
+          let producers = Array.init half (fun _ ->
+            Domain.spawn (fun () ->
+              Eio_main.run (fun _env ->
+                for _ = 1 to pairs_per_cycle do put pool 1 done)))
+          in
+          let consumers = Array.init half (fun _ ->
+            Domain.spawn (fun () ->
+              Eio_main.run (fun _env ->
+                for _ = 1 to pairs_per_cycle do
+                  ignore (retrieve pool)
+                done)))
+          in
+          Array.iter Domain.join producers;
+          Array.iter Domain.join consumers
+        done;
+        let ended      = Bench.now_ns () in
+        let total_ops  = cycles * pairs_per_cycle * half * 2 in
+        let elapsed_ns = Int64.to_float (Int64.sub ended started_at) in
+        let duration_s = elapsed_ns /. 1e9 in
+        let res = Bench.{
+          primitive; workload; threads = t;
+          ops = total_ops; duration_s;
+          throughput = float total_ops /. duration_s;
+          mean_ns    = elapsed_ns /. float total_ops;
+          repeat     = r;
+        } in
+        Bench.pp_stdout res;
+        Bench.append_to ~path:!out (Bench.csv_row res)
+      done
+  in
+  if wanted "BlockingQueuePool" then
     List.iter (fun t ->
-      if t >= 2 then begin
-        let pool = Blocking_queue_pool.make () in
-        run_bench ~primitive:"BlockingQueuePool" ~workload:"W3_pc_queue"
-          ~threads:t ~body:(fun idx ->
-            if idx mod 2 = 0 then
-              Blocking_queue_pool.put pool 1
-            else
-              ignore (Blocking_queue_pool.retrieve pool))
-      end
-    ) selected_threads
-  end;
+      run_pool_bench ~primitive:"BlockingQueuePool" ~workload:"W3_pc_queue"
+        ~make_pool:Blocking_queue_pool.make
+        ~put:Blocking_queue_pool.put
+        ~retrieve:Blocking_queue_pool.retrieve
+        ~threads:t
+    ) selected_threads;
 
-  (* --------------------------------------------------------------- *)
-  (* Blocking stack pool — producer/consumer                          *)
-  (* --------------------------------------------------------------- *)
-  if wanted "BlockingStackPool" then begin
+  if wanted "BlockingStackPool" then
     List.iter (fun t ->
-      if t >= 2 then begin
-        let pool = Blocking_stack_pool.make () in
-        run_bench ~primitive:"BlockingStackPool" ~workload:"W4_pc_stack"
-          ~threads:t ~body:(fun idx ->
-            if idx mod 2 = 0 then
-              Blocking_stack_pool.put pool 1
-            else
-              ignore (Blocking_stack_pool.retrieve pool))
-      end
-    ) selected_threads
-  end;
+      run_pool_bench ~primitive:"BlockingStackPool" ~workload:"W4_pc_stack"
+        ~make_pool:Blocking_stack_pool.make
+        ~put:Blocking_stack_pool.put
+        ~retrieve:Blocking_stack_pool.retrieve
+        ~threads:t
+    ) selected_threads;
 
   (* --------------------------------------------------------------- *)
   (* Count-down latch — fire latency                                  *)

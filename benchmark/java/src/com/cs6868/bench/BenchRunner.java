@@ -91,37 +91,27 @@ public final class BenchRunner {
                     idx -> { m.lock(); try {} finally { m.unlock(); } });
         }
 
-        // Blocking queue pool
+        // Blocking queue / stack pool — short cycles with a fresh
+        // container each cycle, mirroring the OCaml harness (its pool
+        // has a fixed 1024-slot backing array).
         if (wanted(selected, "BlockingQueuePool")) {
             for (int t : capped) if (t >= 2) {
-                LinkedBlockingQueue<Integer> q = new LinkedBlockingQueue<>();
-                runMany("BlockingQueuePool", "W3_pc_queue", t,
-                        warmupMs, measureMs, repeats, out,
-                        idx -> {
-                            try {
-                                if (idx % 2 == 0) q.put(1);
-                                else q.take();
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        });
+                runPoolCycles("BlockingQueuePool", "W3_pc_queue", t,
+                    repeats, out, () -> new LinkedBlockingQueue<Integer>(),
+                    (q, v) -> { try { q.put(v); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt(); } },
+                    q -> { try { return q.take(); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt(); return 0; } });
             }
         }
-
-        // Blocking stack pool (LIFO via LinkedBlockingDeque push/takeFirst)
         if (wanted(selected, "BlockingStackPool")) {
             for (int t : capped) if (t >= 2) {
-                LinkedBlockingDeque<Integer> d = new LinkedBlockingDeque<>();
-                runMany("BlockingStackPool", "W4_pc_stack", t,
-                        warmupMs, measureMs, repeats, out,
-                        idx -> {
-                            try {
-                                if (idx % 2 == 0) d.putFirst(1);
-                                else d.takeFirst();
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        });
+                runPoolCycles("BlockingStackPool", "W4_pc_stack", t,
+                    repeats, out, () -> new LinkedBlockingDeque<Integer>(),
+                    (d, v) -> { try { d.putFirst(v); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt(); } },
+                    d -> { try { return d.takeFirst(); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt(); return 0; } });
             }
         }
 
@@ -187,6 +177,48 @@ public final class BenchRunner {
                     Bench.appendTo(out, res);
                 }
             }
+        }
+    }
+
+    /** Pool producer/consumer benchmark driven by short cycles; mirrors
+     *  the OCaml [run_pool_bench] in benchmark/ocaml/bench_runner.ml. */
+    @SuppressWarnings("unchecked")
+    private static <C> void runPoolCycles(String primitive, String workload,
+            int threads, int repeats, Path out,
+            java.util.function.Supplier<C> makePool,
+            java.util.function.BiConsumer<C, Integer> put,
+            java.util.function.Function<C, Integer> take)
+            throws Exception {
+        int half = Math.max(1, threads / 2);
+        int pairsPerCycle = 300;
+        int cycles = 40;
+        for (int r = 0; r < repeats; r++) {
+            long t0 = System.nanoTime();
+            for (int cy = 0; cy < cycles; cy++) {
+                C pool = makePool.get();
+                Thread[] producers = new Thread[half];
+                Thread[] consumers = new Thread[half];
+                for (int p = 0; p < half; p++) {
+                    producers[p] = new Thread(() -> {
+                        for (int k = 0; k < pairsPerCycle; k++) put.accept(pool, 1);
+                    });
+                    consumers[p] = new Thread(() -> {
+                        for (int k = 0; k < pairsPerCycle; k++) take.apply(pool);
+                    });
+                    producers[p].start();
+                    consumers[p].start();
+                }
+                for (Thread th : producers) th.join();
+                for (Thread th : consumers) th.join();
+            }
+            long t1 = System.nanoTime();
+            long totalOps = (long) cycles * pairsPerCycle * half * 2;
+            double durS = (t1 - t0) / 1e9;
+            Bench.Result res = new Bench.Result(primitive, workload, threads,
+                totalOps, durS, totalOps / durS,
+                (double) (t1 - t0) / totalOps, r);
+            res.printStdout();
+            Bench.appendTo(out, res);
         }
     }
 
