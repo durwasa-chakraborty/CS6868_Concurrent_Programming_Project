@@ -1,13 +1,11 @@
-
-; (library
-;  (name segment_queue_synchronizer_expect_test)
-;  (modules segment_queue_synchronizer_expect_test)
-;  (libraries sqs_eio)
-;  (inline_tests)
-;  (preprocess (pps ppx_expect))
-;  (ocamlopt_flags (:standard -w -21-32))
-;  (ocamlc_flags (:standard -w -21-32)))
-
+; Shared linearisability harness, reused by every *_lin_test below.
+(library
+ (name lin_harness_lib)
+ (modules lin_harness)
+ (wrapped false)
+ (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner eio_main)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
 
 ; Executable: manual concurrent tests
 (executable
@@ -28,7 +26,28 @@
 ; scheduler, so Light_thread.suspend/resume work correctly across domains.
 (test
  (name semaphore_lin_test)
- (modules semaphore_lin_test lin_harness)
- (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner eio_main)
+ (modules semaphore_lin_test)
+ (libraries sqs_eio sqs_primitives lin_harness_lib qcheck-core qcheck-core.runner eio_main)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name count_down_latch_lin_test)
+ (modules count_down_latch_lin_test)
+ (libraries sqs_eio sqs_primitives lin_harness_lib qcheck-core qcheck-core.runner eio_main)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name barrier_lin_test)
+ (modules barrier_lin_test)
+ (libraries sqs_eio sqs_primitives lin_harness_lib qcheck-core qcheck-core.runner eio_main)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name blocking_pool_lin_test)
+ (modules blocking_pool_lin_test)
+ (libraries sqs_eio sqs_primitives lin_harness_lib qcheck-core qcheck-core.runner eio_main)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))
