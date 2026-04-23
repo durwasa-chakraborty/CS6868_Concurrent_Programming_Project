@@ -16,4 +16,5 @@
   (eio (>= 1.3))
   (eio_main (>= 1.3))
   (ppx_expect (>= v0.17))
-  (qcheck-core (>= 0.25))))
+  (qcheck-core (>= 0.25))
+  (qcheck-lin (>= 0.10))))

@@ -1,0 +1,7 @@
+; Benchmark driver — compares SQS primitives against Java AQS.
+(executable
+ (name bench_runner)
+ (modules bench bench_runner)
+ (libraries sqs_eio sqs_primitives eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))

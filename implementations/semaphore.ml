@@ -40,6 +40,21 @@ let acquire t =
   if p > 0 then ()
   else let (_ : unit) = suspend t.sqs in ()
 
+(** [try_acquire t] takes a permit if one is available and returns [true],
+    otherwise returns [false] without suspending.  Never wakes a waiter
+    and never consumes a reservation held by a parked [acquire]. *)
+let try_acquire t =
+  let rec loop () =
+    let cur = Atomic.get t.permits in
+    if cur <= 0 then false
+    else if Atomic.compare_and_set t.permits cur (cur - 1) then true
+    else loop ()
+  in
+  loop ()
+
+(** Current number of permits available (never negative). *)
+let available_permits t = max 0 (Atomic.get t.permits)
+
 (** [release t] increments the permit count and delivers a permit to the
     next waiting fibre, if any. *)
 let release t =

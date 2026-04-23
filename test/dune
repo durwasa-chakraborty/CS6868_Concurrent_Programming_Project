@@ -1,4 +1,4 @@
-; Shared linearisability harness, reused by every *_lin_test below.
+; Shared linearisability harness (Task 3 tests), reused by every *_lin_test below.
 (library
  (name lin_harness_lib)
  (modules lin_harness)
@@ -7,7 +7,10 @@
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))
 
-; Executable: manual concurrent tests
+; ===========================================================================
+; Smoke tests (Task 2)
+; ===========================================================================
+
 (executable
  (name smoke_test)
  (modules smoke_test)
@@ -22,8 +25,12 @@
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))
 
-; Linearisability tests — each domain runs inside its own Eio_main.run
-; scheduler, so Light_thread.suspend/resume work correctly across domains.
+; ===========================================================================
+; Task 3: hand-rolled linearisability tests (Lin_harness-based).
+; Each domain runs inside its own Eio_main.run scheduler, so
+; Light_thread.suspend/resume works correctly across domains.
+; ===========================================================================
+
 (test
  (name semaphore_lin_test)
  (modules semaphore_lin_test)
@@ -49,5 +56,65 @@
  (name blocking_pool_lin_test)
  (modules blocking_pool_lin_test)
  (libraries sqs_eio sqs_primitives lin_harness_lib qcheck-core qcheck-core.runner eio_main)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+; ===========================================================================
+; Task 4: qcheck-lin DSL linearisability tests (non-blocking subsets).
+; Format mirrors test/qcheck_lin_batch_queue.ml.
+; ===========================================================================
+
+(test
+ (name qcheck_lin_semaphore)
+ (modules qcheck_lin_semaphore)
+ (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner qcheck-lin.domain)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name qcheck_lin_count_down_latch)
+ (modules qcheck_lin_count_down_latch)
+ (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner qcheck-lin.domain)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+; ===========================================================================
+; Task 4: manual concurrent scenario tests.
+; Format mirrors test/test_manual.ml.  These cover the blocking-op paths
+; that the Lin DSL tests cannot express.
+; ===========================================================================
+
+(test
+ (name semaphore_manual_test)
+ (modules semaphore_manual_test)
+ (libraries sqs_eio sqs_primitives eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name count_down_latch_manual_test)
+ (modules count_down_latch_manual_test)
+ (libraries sqs_eio sqs_primitives eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name barrier_manual_test)
+ (modules barrier_manual_test)
+ (libraries sqs_eio sqs_primitives eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name blocking_pool_manual_test)
+ (modules blocking_pool_manual_test)
+ (libraries sqs_eio sqs_primitives eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name mutex_manual_test)
+ (modules mutex_manual_test)
+ (libraries sqs_eio sqs_primitives eio_main unix)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))
