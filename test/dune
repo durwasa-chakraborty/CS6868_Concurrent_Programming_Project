@@ -17,12 +17,12 @@
  (ocamlc_flags (:standard -w -21-32))
  (libraries sqs_eio unix))
 
-; (executable
-;  (name cross_domain_smoke)
-;  (modules cross_domain_smoke)
-;  (libraries Segment_queue_synchronizer eio_main unix)
-;  (ocamlopt_flags (:standard -w -21-32))
-;  (ocamlc_flags (:standard -w -21-32)))
+(executable
+ (name cross_domain_smoke)
+ (modules cross_domain_smoke)
+ (libraries sqs_eio eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
 
 ; Linearisability tests — each domain runs inside its own Eio_main.run
 ; scheduler, so Light_thread.suspend/resume work correctly across domains.
