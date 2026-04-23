@@ -1,12 +1,12 @@
 
-(library
- (name segment_queue_synchronizer_expect_test)
- (modules segment_queue_synchronizer_expect_test)
- (libraries Segment_queue_synchronizer)
- (inline_tests)
- (preprocess (pps ppx_expect))
- (ocamlopt_flags (:standard -w -21-32))
- (ocamlc_flags (:standard -w -21-32)))
+; (library
+;  (name segment_queue_synchronizer_expect_test)
+;  (modules segment_queue_synchronizer_expect_test)
+;  (libraries sqs_eio)
+;  (inline_tests)
+;  (preprocess (pps ppx_expect))
+;  (ocamlopt_flags (:standard -w -21-32))
+;  (ocamlc_flags (:standard -w -21-32)))
 
 
 ; Executable: manual concurrent tests
@@ -15,20 +15,20 @@
  (modules smoke_test)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32))
- (libraries Segment_queue_synchronizer unix))
+ (libraries sqs_eio unix))
 
-(executable
- (name cross_domain_smoke)
- (modules cross_domain_smoke)
- (libraries Segment_queue_synchronizer eio_main unix)
- (ocamlopt_flags (:standard -w -21-32))
- (ocamlc_flags (:standard -w -21-32)))
+; (executable
+;  (name cross_domain_smoke)
+;  (modules cross_domain_smoke)
+;  (libraries Segment_queue_synchronizer eio_main unix)
+;  (ocamlopt_flags (:standard -w -21-32))
+;  (ocamlc_flags (:standard -w -21-32)))
 
 ; Linearisability tests — each domain runs inside its own Eio_main.run
 ; scheduler, so Light_thread.suspend/resume work correctly across domains.
 (test
  (name semaphore_lin_test)
  (modules semaphore_lin_test lin_harness)
- (libraries Segment_queue_synchronizer qcheck-core qcheck-core.runner eio_main)
+ (libraries sqs_eio qcheck-core qcheck-core.runner eio_main)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))

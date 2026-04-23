@@ -1,4 +1,4 @@
-open Segment_queue_synchronizer
+open Sqs_effects
 
 (* Reusable no-op callback for states that need a waiter payload. *)
 let noop _ = ()

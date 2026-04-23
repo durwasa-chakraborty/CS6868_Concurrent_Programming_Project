@@ -1,8 +1,8 @@
 ; Library: batch bounded blocking queue implementation
 (library
- (name Segment_queue_synchronizer)
+ (name sqs_eio)
  (wrapped false)
- (modules light_thread segment_queue_synchronizer sqs_effects
+ (modules light_thread sqs_effects
           semaphore mutex count_down_latch barrier
           blocking_queue_pool blocking_stack_pool)
  (libraries eio eio_main)
