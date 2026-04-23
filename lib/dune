@@ -1,10 +1,8 @@
-; Library: batch bounded blocking queue implementation
+; Library: core Eio-based segment queue synchronizer runtime
 (library
  (name sqs_eio)
  (wrapped false)
- (modules light_thread sqs_effects
-          semaphore mutex count_down_latch barrier
-          blocking_queue_pool blocking_stack_pool)
- (libraries eio eio_main)
+ (modules light_thread sqs_effects)
+ (libraries eio eio.core eio_main)
  (ocamlopt_flags (:standard -w -32))
  (ocamlc_flags (:standard -w -32)))

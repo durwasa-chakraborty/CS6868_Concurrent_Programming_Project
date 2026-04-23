@@ -15,12 +15,12 @@
  (modules smoke_test)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32))
- (libraries sqs_eio unix))
+ (libraries sqs_eio sqs_primitives unix))
 
 (executable
  (name cross_domain_smoke)
  (modules cross_domain_smoke)
- (libraries sqs_eio eio_main unix)
+ (libraries sqs_eio sqs_primitives eio_main unix)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))
 
@@ -29,6 +29,6 @@
 (test
  (name semaphore_lin_test)
  (modules semaphore_lin_test lin_harness)
- (libraries sqs_eio qcheck-core qcheck-core.runner eio_main)
+ (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner eio_main)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))
