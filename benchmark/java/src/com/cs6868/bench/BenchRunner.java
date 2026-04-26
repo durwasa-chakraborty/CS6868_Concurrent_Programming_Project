@@ -67,9 +67,23 @@ public final class BenchRunner {
 
         // Semaphore
         if (wanted(selected, "Semaphore")) {
-            for (int t : capped) {
+            // Binary (k=1) — equivalent to Mutex; kept as the apples-to-apples
+            // baseline against the Mutex W2_contended row.
+            // Skipped at t=1: contended-with-one-thread is identical to
+            // the W1_uncontended row below — same fast-path acquire/release.
+            for (int t : capped) if (t >= 2) {
                 Semaphore s = new Semaphore(1);
                 runMany("Semaphore(1)", "W2_contended", t,
+                        warmupMs, measureMs, opsPerThread, repeats, out,
+                        idx -> { s.acquireUninterruptibly(); s.release(); });
+            }
+            // Bounded parallelism (k = t/2 < t).  Some threads proceed in
+            // parallel while the rest block on the AQS queue — this is what
+            // makes Semaphore non-trivially different from Mutex.  Skipped
+            // at t ≤ 2 where t/2 ≤ 1 collapses back to the binary case.
+            for (int t : capped) if (t >= 4) {
+                Semaphore s = new Semaphore(t / 2);
+                runMany("Semaphore(half)", "W2_contended", t,
                         warmupMs, measureMs, opsPerThread, repeats, out,
                         idx -> { s.acquireUninterruptibly(); s.release(); });
             }
@@ -81,7 +95,9 @@ public final class BenchRunner {
 
         // Mutex = ReentrantLock
         if (wanted(selected, "Mutex")) {
-            for (int t : capped) {
+            // Skip t=1: contended-with-one-thread is identical to the
+            // W1_uncontended row below — same fast-path lock/unlock loop.
+            for (int t : capped) if (t >= 2) {
                 ReentrantLock m = new ReentrantLock();
                 runMany("Mutex", "W2_contended", t,
                         warmupMs, measureMs, opsPerThread, repeats, out,

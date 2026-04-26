@@ -59,9 +59,24 @@ fun main(args: Array<String>) {
     runBlocking {
         // ---------------- Semaphore ----------------
         if (wanted(selected, "Semaphore")) {
-            for (t in capped) {
+            // Binary (k=1) — equivalent to Mutex; kept as the
+            // apples-to-apples baseline against Mutex W2_contended.
+            // Skipped at t=1: contended-with-one-thread is identical to
+            // the W1_uncontended row below — same fast-path acquire/release.
+            for (t in capped) if (t >= 2) {
                 val s = Semaphore(1)
                 runMany("Semaphore(1)", "W2_contended", t,
+                    warmupMs, measureMs, repeats, out) { _ ->
+                        s.acquire(); s.release()
+                    }
+            }
+            // Bounded parallelism (k = t/2 < t).  Some coroutines proceed
+            // in parallel while the rest suspend on the SQS queue — this
+            // is what makes Semaphore non-trivially different from Mutex.
+            // Skipped at t ≤ 2 where t/2 ≤ 1 collapses back to binary.
+            for (t in capped) if (t >= 4) {
+                val s = Semaphore(t / 2)
+                runMany("Semaphore(half)", "W2_contended", t,
                     warmupMs, measureMs, repeats, out) { _ ->
                         s.acquire(); s.release()
                     }
@@ -75,7 +90,9 @@ fun main(args: Array<String>) {
 
         // ---------------- Mutex ----------------
         if (wanted(selected, "Mutex")) {
-            for (t in capped) {
+            // Skip t=1: contended-with-one-thread is identical to the
+            // W1_uncontended row below — same fast-path lock/unlock loop.
+            for (t in capped) if (t >= 2) {
                 val m = Mutex()
                 runMany("Mutex", "W2_contended", t,
                     warmupMs, measureMs, repeats, out) { _ ->

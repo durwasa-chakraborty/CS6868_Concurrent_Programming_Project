@@ -63,12 +63,31 @@ let () =
   (* Semaphore                                                        *)
   (* --------------------------------------------------------------- *)
   if wanted "Semaphore" then begin
+    (* Binary (k=1) — equivalent to Mutex; kept as the apples-to-apples
+       baseline against the Mutex W2_contended row.
+       Skipped at t=1 because contended-with-one-thread is identical to
+       the W1_uncontended row below — it's the same fast-path loop. *)
     List.iter (fun t ->
-      let s = Semaphore.make (if t = 1 then 1 else 1) in
-      run_bench ~primitive:"Semaphore(1)" ~workload:"W2_contended"
-        ~threads:t ~body:(fun _ ->
-          Semaphore.acquire s;
-          Semaphore.release s)
+      if t >= 2 then begin
+        let s = Semaphore.make 1 in
+        run_bench ~primitive:"Semaphore(1)" ~workload:"W2_contended"
+          ~threads:t ~body:(fun _ ->
+            Semaphore.acquire s;
+            Semaphore.release s)
+      end
+    ) selected_threads;
+    (* Bounded parallelism (k = t/2 < t).  Some threads proceed in
+       parallel while the rest park on the SQS queue — this is what
+       makes Semaphore non-trivially different from Mutex.  Skipped at
+       t ≤ 2 where t/2 ≤ 1 collapses back to the binary case. *)
+    List.iter (fun t ->
+      if t >= 4 then begin
+        let s = Semaphore.make (t / 2) in
+        run_bench ~primitive:"Semaphore(half)" ~workload:"W2_contended"
+          ~threads:t ~body:(fun _ ->
+            Semaphore.acquire s;
+            Semaphore.release s)
+      end
     ) selected_threads;
     (* Fast-path uncontended baseline. *)
     let s = Semaphore.make 1 in
@@ -82,12 +101,16 @@ let () =
   (* Mutex                                                            *)
   (* --------------------------------------------------------------- *)
   if wanted "Mutex" then begin
+    (* Skip t=1: contended-with-one-thread is identical to the
+       W1_uncontended row below — same fast-path lock/unlock loop. *)
     List.iter (fun t ->
-      let m = Mutex.make () in
-      run_bench ~primitive:"Mutex" ~workload:"W2_contended"
-        ~threads:t ~body:(fun _ ->
-          Mutex.lock m (fun () -> ());
-          Mutex.unlock m)
+      if t >= 2 then begin
+        let m = Mutex.make () in
+        run_bench ~primitive:"Mutex" ~workload:"W2_contended"
+          ~threads:t ~body:(fun _ ->
+            Mutex.lock m (fun () -> ());
+            Mutex.unlock m)
+      end
     ) selected_threads;
     let m = Mutex.make () in
     run_bench ~primitive:"Mutex" ~workload:"W1_uncontended"
