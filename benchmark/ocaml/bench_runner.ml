@@ -97,6 +97,13 @@ let () =
   (* The queue pool uses a fixed-size slot array (1024); long-running *)
   (* producer bursts overrun it, so each cycle uses a fresh pool and  *)
   (* bounded pairs to stay well under the limit.                      *)
+  (*                                                                  *)
+  (* Workers are spawned ONCE per repeat: each domain enters one      *)
+  (* Eio_main.run and walks the pre-allocated pool array.  Spawning a *)
+  (* fresh Domain + Eio scheduler per cycle (the previous structure)  *)
+  (* leaks pthread stacks and Eio state on macOS — RSS grows into the *)
+  (* GBs across the full pipeline and the kernel SIGKILLs the process *)
+  (* during the last benchmark.                                       *)
   (* --------------------------------------------------------------- *)
   let run_pool_bench ~primitive ~workload ~make_pool ~put ~retrieve
       ~threads:t =
@@ -107,24 +114,26 @@ let () =
            well under Blocking_queue_pool.slot_count = 1024 at every T. *)
         let pairs_per_cycle = max 50 (800 / half) in
         let cycles          = 40 in
+        let pools           = Array.init cycles (fun _ -> make_pool ()) in
         let started_at      = Bench.now_ns () in
-        for _ = 1 to cycles do
-          let pool = make_pool () in
-          let producers = Array.init half (fun _ ->
-            Domain.spawn (fun () ->
-              Eio_main.run (fun _env ->
-                for _ = 1 to pairs_per_cycle do put pool 1 done)))
-          in
-          let consumers = Array.init half (fun _ ->
-            Domain.spawn (fun () ->
-              Eio_main.run (fun _env ->
+        let producers = Array.init half (fun _ ->
+          Domain.spawn (fun () ->
+            Eio_main.run (fun _env ->
+              for c = 0 to cycles - 1 do
+                for _ = 1 to pairs_per_cycle do put pools.(c) 1 done
+              done)))
+        in
+        let consumers = Array.init half (fun _ ->
+          Domain.spawn (fun () ->
+            Eio_main.run (fun _env ->
+              for c = 0 to cycles - 1 do
                 for _ = 1 to pairs_per_cycle do
-                  ignore (retrieve pool)
-                done)))
-          in
-          Array.iter Domain.join producers;
-          Array.iter Domain.join consumers
-        done;
+                  ignore (retrieve pools.(c))
+                done
+              done)))
+        in
+        Array.iter Domain.join producers;
+        Array.iter Domain.join consumers;
         let ended      = Bench.now_ns () in
         let total_ops  = cycles * pairs_per_cycle * half * 2 in
         let elapsed_ns = Int64.to_float (Int64.sub ended started_at) in
@@ -169,21 +178,37 @@ let () =
       if t >= 2 then
         for r = 0 to !repeats - 1 do
           let cycles = 200 in
+          (* Pre-allocate one latch per cycle and spawn the t-1 awaiter
+             domains exactly once per repeat.  Each awaiter walks every
+             latch in order; the main thread acts as the firer, waiting
+             for all awaiters to park on cycle [c] before counting down.
+             This avoids the Domain.spawn + Eio_main.run-per-cycle leak
+             that was OOM-killing the process at the end of the run. *)
+          let latches = Array.init cycles
+            (fun _ -> Count_down_latch.make 1) in
+          let awoke = Atomic.make 0 in
           let started_at = Bench.now_ns () in
-          for _ = 1 to cycles do
-            let l = Count_down_latch.make 1 in
-            let awoke = Atomic.make 0 in
-            let awaiters = Array.init (t - 1) (fun _ ->
-              Domain.spawn (fun () ->
-                Eio_main.run (fun _env ->
-                  Count_down_latch.await l;
-                  Atomic.incr awoke)))
-            in
-            (* Tiny wait so awaiters park inside Eio. *)
+          let awaiters = Array.init (t - 1) (fun _ ->
+            Domain.spawn (fun () ->
+              Eio_main.run (fun _env ->
+                for c = 0 to cycles - 1 do
+                  Count_down_latch.await latches.(c);
+                  Atomic.incr awoke
+                done)))
+          in
+          for c = 0 to cycles - 1 do
+            (* Tiny wait so awaiters reach the suspend point inside Eio
+               before we count down.  Without it the latch would already
+               be open and the await would short-circuit, masking the
+               park/wake latency we are trying to measure. *)
             Unix.sleepf 0.0005;
-            Count_down_latch.count_down l;
-            Array.iter Domain.join awaiters
+            Count_down_latch.count_down latches.(c);
+            (* Wait for all t-1 awaiters to acknowledge cycle [c] before
+               proceeding so cycles stay serialized. *)
+            let target = (c + 1) * (t - 1) in
+            while Atomic.get awoke < target do Domain.cpu_relax () done
           done;
+          Array.iter Domain.join awaiters;
           let ended = Bench.now_ns () in
           let elapsed_ns = Int64.to_float (Int64.sub ended started_at) in
           let duration_s = elapsed_ns /. 1e9 in
@@ -211,16 +236,23 @@ let () =
       if t >= 2 then
         for r = 0 to !repeats - 1 do
           let cycles = 200 in
+          (* Pre-allocate one barrier per cycle and spawn t worker
+             domains exactly once per repeat.  Each worker walks every
+             barrier in order and arrives on it; barriers naturally
+             serialize the cycles since arrive(b[c+1]) cannot complete
+             until every party has cleared b[c].  Same motivation as
+             the latch restructure: avoid Domain + Eio_main.run churn
+             that OOM-kills the process at high t. *)
+          let barriers = Array.init cycles (fun _ -> Barrier.make t) in
           let started_at = Bench.now_ns () in
-          for _ = 1 to cycles do
-            let b = Barrier.make t in
-            let doms = Array.init t (fun _ ->
-              Domain.spawn (fun () ->
-                Eio_main.run (fun _env ->
-                  ignore (Barrier.arrive b))))
-            in
-            Array.iter Domain.join doms
-          done;
+          let doms = Array.init t (fun _ ->
+            Domain.spawn (fun () ->
+              Eio_main.run (fun _env ->
+                for c = 0 to cycles - 1 do
+                  ignore (Barrier.arrive barriers.(c))
+                done)))
+          in
+          Array.iter Domain.join doms;
           let ended = Bench.now_ns () in
           let elapsed_ns = Int64.to_float (Int64.sub ended started_at) in
           let duration_s = elapsed_ns /. 1e9 in

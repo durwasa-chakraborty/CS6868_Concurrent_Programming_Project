@@ -47,10 +47,17 @@ COMMON=(
   --measure-ms "$MEASURE_MS"
 )
 
+# Printing args:
+echo "ARGS: \n"
+echo "${COMMON[@]}" 
+echo "${EXTRA[@]+${EXTRA[@]}}"
+
+# Running Java benchmarks
 echo ""
 echo "=== Java (AbstractQueueSynchronizer-backed primitives) ==="
 "$HERE/java/run.sh" "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}"
 
+# Running Java benchmarks
 echo ""
 echo "=== OCaml (SQS-backed primitives) ==="
 ( cd "$ROOT" && _build/default/benchmark/ocaml/bench_runner.exe "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}" )

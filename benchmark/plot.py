@@ -4,9 +4,12 @@
 Usage: plot.py SUMMARY_CSV OUT_DIR
 
 Emits:
-  OUT_DIR/throughput.png  — grouped bar chart at the highest common T
-  OUT_DIR/scalability.png — one sub-plot per (primitive, workload), with
-                            ocaml and java lines vs threads
+  OUT_DIR/throughput_T{N}.png — grouped bar chart, one per thread count
+                                that appears in the CSV
+  OUT_DIR/throughput.png      — alias for the highest thread count
+                                (kept for back-compat with run_all.sh)
+  OUT_DIR/scalability.png     — one sub-plot per (primitive, workload),
+                                with ocaml and java lines vs threads
 """
 from __future__ import annotations
 
@@ -36,12 +39,9 @@ def aggregate(rows):
     return {k: median(v) for k, v in buckets.items()}
 
 
-def plot_throughput(agg, out_path):
+def plot_throughput_at(agg, target_t, out_path):
     import matplotlib.pyplot as plt
-
-    # Pick a headline thread count: prefer T=4 if present, else the max.
-    all_t = sorted({k[3] for k in agg.keys()})
-    target_t = 4 if 4 in all_t else all_t[-1]
+    import numpy as np
 
     pairs = {}  # (primitive, workload) -> {impl: throughput}
     for (impl, prim, wl, t), th in agg.items():
@@ -50,14 +50,15 @@ def plot_throughput(agg, out_path):
         pairs.setdefault((prim, wl), {})[impl] = th
 
     if not pairs:
-        print("plot_throughput: no rows at T={}".format(target_t))
+        print(f"plot_throughput: no rows at T={target_t}")
         return
 
-    labels = [f"{p}\n{w}" for (p, w) in pairs]
-    ocaml_vals = [pairs[k].get("ocaml", 0) for k in pairs]
-    java_vals  = [pairs[k].get("java",  0) for k in pairs]
+    # Stable ordering so the bars line up across the per-T charts.
+    keys = sorted(pairs.keys())
+    labels = [f"{p}\n{w}" for (p, w) in keys]
+    ocaml_vals = [pairs[k].get("ocaml", 0) for k in keys]
+    java_vals  = [pairs[k].get("java",  0) for k in keys]
 
-    import numpy as np
     x = np.arange(len(labels))
     width = 0.38
 
@@ -73,7 +74,20 @@ def plot_throughput(agg, out_path):
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
+    plt.close(fig)
     print(f"wrote {out_path}")
+
+
+def plot_throughput(agg, out_dir):
+    """Emit one bar chart per thread count, plus a stable throughput.png
+       alias pointing at the highest T (for back-compat with run_all.sh)."""
+    all_t = sorted({k[3] for k in agg.keys()})
+    if not all_t:
+        print("plot_throughput: no data")
+        return
+    for t in all_t:
+        plot_throughput_at(agg, t, os.path.join(out_dir, f"throughput_T{t}.png"))
+    plot_throughput_at(agg, all_t[-1], os.path.join(out_dir, "throughput.png"))
 
 
 def plot_scalability(agg, out_path):
@@ -126,7 +140,7 @@ def main(argv):
         print("no rows in CSV", file=sys.stderr)
         return 1
     agg = aggregate(rows)
-    plot_throughput(agg, os.path.join(out_dir, "throughput.png"))
+    plot_throughput(agg, out_dir)
     plot_scalability(agg, os.path.join(out_dir, "scalability.png"))
     return 0
 
