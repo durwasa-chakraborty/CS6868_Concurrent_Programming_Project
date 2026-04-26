@@ -9,11 +9,8 @@
 *.cmxs
 *.cmxa
 *.md
-<<<<<<< HEAD
 *.png
-=======
 *.class
->>>>>>> 25b56ea (REFACTOR: Added benchmark for kotlin)
 
 # Files containing detailed information about the compilation (generated
 # by `ocamlc`/`ocamlopt` when invoked using the option `-bin-annot`).
