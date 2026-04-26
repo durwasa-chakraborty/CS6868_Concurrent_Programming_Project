@@ -103,7 +103,9 @@ let () =
     if t >= 2 then
       for r = 0 to !repeats - 1 do
         let half            = max 1 (t / 2) in
-        let pairs_per_cycle = 300 in            (* << slot_count=1024 *)
+        (* Total inserts per cycle = half * pairs_per_cycle.  Keep it
+           well under Blocking_queue_pool.slot_count = 1024 at every T. *)
+        let pairs_per_cycle = max 50 (800 / half) in
         let cycles          = 40 in
         let started_at      = Bench.now_ns () in
         for _ = 1 to cycles do
