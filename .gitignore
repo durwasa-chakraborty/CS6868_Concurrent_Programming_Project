@@ -9,6 +9,7 @@
 *.cmxs
 *.cmxa
 *.md
+*.png
 
 # Files containing detailed information about the compilation (generated
 # by `ocamlc`/`ocamlopt` when invoked using the option `-bin-annot`).
