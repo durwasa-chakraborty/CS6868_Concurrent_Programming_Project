@@ -4,12 +4,18 @@
 Usage: plot.py SUMMARY_CSV OUT_DIR
 
 Emits:
-  OUT_DIR/throughput_T{N}.png — grouped bar chart, one per thread count
-                                that appears in the CSV
-  OUT_DIR/throughput.png      — alias for the highest thread count
-                                (kept for back-compat with run_all.sh)
-  OUT_DIR/scalability.png     — one sub-plot per (primitive, workload),
-                                with one line per implementation vs threads
+  OUT_DIR/throughput_T{N}.png    — grouped bar chart of throughput
+                                   (ops/s, log scale), one per thread
+                                   count that appears in the CSV.
+  OUT_DIR/throughput.png         — alias for the highest thread count
+                                   (kept for back-compat with run_all.sh).
+  OUT_DIR/mean_latency_T{N}.png  — grouped bar chart of mean latency
+                                   (ns/op, log scale), one per thread
+                                   count.  For the default 1,2,4,8
+                                   sweep this yields four files.
+  OUT_DIR/scalability.png        — one sub-plot per (primitive, workload),
+                                   with one line per implementation vs
+                                   threads.
 
 When the CSV contains Kotlin rows, the BlockingStackPool, CountDownLatch(1),
 and Barrier primitives are dropped before plotting: kotlinx.coroutines does
@@ -44,6 +50,7 @@ def read_rows(path):
         for r in csv.DictReader(f):
             r["threads"] = int(r["threads"])
             r["throughput_ops_s"] = float(r["throughput_ops_s"])
+            r["mean_latency_ns"] = float(r["mean_latency_ns"])
             rows.append(r)
     return rows
 
@@ -57,12 +64,12 @@ def filter_for_kotlin(rows):
     return [r for r in rows if r["primitive"] not in KOTLIN_GAP_PRIMITIVES]
 
 
-def aggregate(rows):
-    """Median throughput keyed by (implementation, primitive, workload, threads)."""
+def aggregate(rows, metric="throughput_ops_s"):
+    """Median of [metric] keyed by (implementation, primitive, workload, threads)."""
     buckets = defaultdict(list)
     for r in rows:
         key = (r["implementation"], r["primitive"], r["workload"], r["threads"])
-        buckets[key].append(r["throughput_ops_s"])
+        buckets[key].append(r[metric])
     return {k: median(v) for k, v in buckets.items()}
 
 
@@ -73,23 +80,25 @@ def _impls_present(agg):
     return [t for t in IMPL_STYLE if t[0] in seen]
 
 
-def plot_throughput_at(agg, target_t, out_path):
+def _plot_metric_at(agg, target_t, out_path, *, ylabel, title_prefix):
+    """Grouped bar chart: one group per (primitive, workload) at a fixed
+    thread count, with one bar per implementation present in [agg]."""
     import matplotlib.pyplot as plt
     import numpy as np
 
-    pairs = {}  # (primitive, workload) -> {impl: throughput}
-    for (impl, prim, wl, t), th in agg.items():
+    pairs = {}  # (primitive, workload) -> {impl: value}
+    for (impl, prim, wl, t), v in agg.items():
         if t != target_t:
             continue
-        pairs.setdefault((prim, wl), {})[impl] = th
+        pairs.setdefault((prim, wl), {})[impl] = v
 
     if not pairs:
-        print(f"plot_throughput: no rows at T={target_t}")
+        print(f"{title_prefix}: no rows at T={target_t}")
         return
 
     impls = _impls_present(agg)
     if not impls:
-        print(f"plot_throughput: no known impls at T={target_t}")
+        print(f"{title_prefix}: no known impls at T={target_t}")
         return
 
     keys = sorted(pairs.keys())
@@ -106,9 +115,9 @@ def plot_throughput_at(agg, target_t, out_path):
         offset = (j - (n_impl - 1) / 2) * width
         ax.bar(x + offset, vals, width, label=impl_lbl, color=color)
     ax.set_yscale("log")
-    ax.set_ylabel("throughput (ops/s)  [log]")
+    ax.set_ylabel(ylabel)
     title_impls = " vs ".join(lbl for _, lbl, _ in impls)
-    ax.set_title(f"Throughput at T={target_t} — {title_impls}")
+    ax.set_title(f"{title_prefix} at T={target_t} — {title_impls}")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
     ax.legend()
@@ -117,6 +126,12 @@ def plot_throughput_at(agg, target_t, out_path):
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
     print(f"wrote {out_path}")
+
+
+def plot_throughput_at(agg, target_t, out_path):
+    _plot_metric_at(agg, target_t, out_path,
+                    ylabel="throughput (ops/s)  [log]",
+                    title_prefix="Throughput")
 
 
 def plot_throughput(agg, out_dir):
@@ -129,6 +144,23 @@ def plot_throughput(agg, out_dir):
     for t in all_t:
         plot_throughput_at(agg, t, os.path.join(out_dir, f"throughput_T{t}.png"))
     plot_throughput_at(agg, all_t[-1], os.path.join(out_dir, "throughput.png"))
+
+
+def plot_latency_at(agg, target_t, out_path):
+    _plot_metric_at(agg, target_t, out_path,
+                    ylabel="mean latency (ns/op)  [log]",
+                    title_prefix="Mean latency")
+
+
+def plot_latency(agg, out_dir):
+    """Emit one mean-latency bar chart per thread count.  For the
+       default 1,2,4,8 sweep this yields four files, one for each T."""
+    all_t = sorted({k[3] for k in agg.keys()})
+    if not all_t:
+        print("plot_latency: no data")
+        return
+    for t in all_t:
+        plot_latency_at(agg, t, os.path.join(out_dir, f"mean_latency_T{t}.png"))
 
 
 def plot_scalability(agg, out_path):
@@ -183,9 +215,11 @@ def main(argv):
         print("no rows in CSV", file=sys.stderr)
         return 1
     rows = filter_for_kotlin(rows)
-    agg = aggregate(rows)
-    plot_throughput(agg, out_dir)
-    plot_scalability(agg, os.path.join(out_dir, "scalability.png"))
+    agg_throughput = aggregate(rows, "throughput_ops_s")
+    agg_latency    = aggregate(rows, "mean_latency_ns")
+    plot_throughput(agg_throughput, out_dir)
+    plot_latency(agg_latency, out_dir)
+    plot_scalability(agg_throughput, os.path.join(out_dir, "scalability.png"))
     return 0
 
 
