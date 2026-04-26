@@ -41,6 +41,7 @@ public final class BenchRunner {
         int repeats = 3;
         long warmupMs = 1000;
         long measureMs = 2000;
+        long opsPerThread = 0;
         Set<String> selected = new HashSet<>();
 
         for (int i = 0; i < args.length; i++) {
@@ -50,6 +51,7 @@ public final class BenchRunner {
                 case "--repeats":    repeats = Integer.parseInt(args[++i]); break;
                 case "--warmup-ms":  warmupMs = Long.parseLong(args[++i]); break;
                 case "--measure-ms": measureMs = Long.parseLong(args[++i]); break;
+                case "--ops":        opsPerThread = Long.parseLong(args[++i]); break;
                 case "--only":
                     selected.addAll(Arrays.asList(args[++i].split(",")));
                     break;
@@ -68,12 +70,12 @@ public final class BenchRunner {
             for (int t : capped) {
                 Semaphore s = new Semaphore(1);
                 runMany("Semaphore(1)", "W2_contended", t,
-                        warmupMs, measureMs, repeats, out,
+                        warmupMs, measureMs, opsPerThread, repeats, out,
                         idx -> { s.acquireUninterruptibly(); s.release(); });
             }
             Semaphore s = new Semaphore(1);
             runMany("Semaphore(1)", "W1_uncontended", 1,
-                    warmupMs, measureMs, repeats, out,
+                    warmupMs, measureMs, opsPerThread, repeats, out,
                     idx -> { s.acquireUninterruptibly(); s.release(); });
         }
 
@@ -82,12 +84,12 @@ public final class BenchRunner {
             for (int t : capped) {
                 ReentrantLock m = new ReentrantLock();
                 runMany("Mutex", "W2_contended", t,
-                        warmupMs, measureMs, repeats, out,
+                        warmupMs, measureMs, opsPerThread, repeats, out,
                         idx -> { m.lock(); try {} finally { m.unlock(); } });
             }
             ReentrantLock m = new ReentrantLock();
             runMany("Mutex", "W1_uncontended", 1,
-                    warmupMs, measureMs, repeats, out,
+                    warmupMs, measureMs, opsPerThread, repeats, out,
                     idx -> { m.lock(); try {} finally { m.unlock(); } });
         }
 
@@ -223,12 +225,13 @@ public final class BenchRunner {
     }
 
     private static void runMany(String primitive, String workload, int threads,
-                                long warmupMs, long measureMs, int repeats,
-                                Path out, java.util.function.IntConsumer body)
+                                long warmupMs, long measureMs, long opsPerThread,
+                                int repeats, Path out,
+                                java.util.function.IntConsumer body)
             throws Exception {
         for (int r = 0; r < repeats; r++) {
             Bench.Result res = Bench.run(primitive, workload, threads,
-                warmupMs, measureMs, r, body);
+                warmupMs, measureMs, opsPerThread, r, body);
             res.printStdout();
             Bench.appendTo(out, res);
         }

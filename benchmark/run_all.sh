@@ -19,6 +19,10 @@ THREADS="${THREADS:-1,2,4,8}"
 REPEATS="${REPEATS:-3}"
 WARMUP_MS="${WARMUP_MS:-1000}"
 MEASURE_MS="${MEASURE_MS:-2000}"
+# Fixed-N mode: each thread performs exactly OPS body invocations on the
+# Semaphore/Mutex bodies (Pool/Latch/Barrier already use cycles*pairs).
+# Set OPS=0 to fall back to the time-based MEASURE_MS window.
+OPS="${OPS:-2000000}"
 
 EXTRA=()
 while [[ $# -gt 0 ]]; do
@@ -27,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --repeats)    REPEATS="$2"; shift 2;;
     --warmup-ms)  WARMUP_MS="$2"; shift 2;;
     --measure-ms) MEASURE_MS="$2"; shift 2;;
+    --ops)        OPS="$2"; shift 2;;
     --)           shift; EXTRA=("$@"); break;;
     *)            EXTRA+=("$1"); shift;;
   esac
@@ -34,6 +39,7 @@ done
 
 echo "=== building benchmarks ==="
 "$HERE/java/build.sh"
+"$HERE/kotlin/build.sh"
 ( cd "$ROOT" && dune build benchmark/ocaml )
 
 mkdir -p "$HERE/results" "$PLOT_DIR"
@@ -45,6 +51,7 @@ COMMON=(
   --repeats "$REPEATS"
   --warmup-ms "$WARMUP_MS"
   --measure-ms "$MEASURE_MS"
+  --ops "$OPS"
 )
 
 # Printing args:
@@ -58,6 +65,10 @@ echo "=== Java (AbstractQueueSynchronizer-backed primitives) ==="
 "$HERE/java/run.sh" "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}"
 
 # Running Java benchmarks
+echo ""
+echo "=== Kotlin (kotlinx.coroutines suspending primitives) ==="
+"$HERE/kotlin/run.sh" "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}"
+
 echo ""
 echo "=== OCaml (SQS-backed primitives) ==="
 ( cd "$ROOT" && _build/default/benchmark/ocaml/bench_runner.exe "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}" )

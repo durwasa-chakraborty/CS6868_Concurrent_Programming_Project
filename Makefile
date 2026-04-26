@@ -7,7 +7,7 @@
         lin-semaphore lin-latch lin-barrier lin-pool \
         qcheck-lin-semaphore qcheck-lin-latch \
         manual-semaphore manual-latch manual-barrier manual-pool manual-mutex \
-        bench bench-build bench-java bench-ocaml bench-run bench-plot bench-clean
+        bench bench-build bench-java bench-kotlin bench-ocaml bench-run bench-plot bench-clean
 
 # -----------------------------------------------------------------------------
 # Defaults
@@ -113,11 +113,15 @@ manual-mutex:
 
 bench: bench-build bench-run bench-plot
 
-bench-build: bench-java bench-ocaml
+bench-build: bench-java bench-kotlin bench-ocaml
 
 bench-java:
 	@echo "=== Task 6: building Java benchmark classes ==="
 	benchmark/java/build.sh
+
+bench-kotlin:
+	@echo "=== Task 6: building Kotlin benchmark classes ==="
+	benchmark/kotlin/build.sh
 
 bench-ocaml:
 	@echo "=== Task 6: building OCaml benchmark driver ==="
@@ -132,7 +136,7 @@ bench-plot:
 	python3 benchmark/plot.py benchmark/results/summary.csv benchmark/results/plots
 
 bench-clean:
-	rm -rf benchmark/java/classes benchmark/results
+	rm -rf benchmark/java/classes benchmark/kotlin/classes benchmark/results
 
 # -----------------------------------------------------------------------------
 # Help

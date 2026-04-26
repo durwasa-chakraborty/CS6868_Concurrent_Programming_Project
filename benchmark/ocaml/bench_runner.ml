@@ -14,6 +14,7 @@ let () =
   let repeats   = ref 3 in
   let warmup    = ref 1000 in
   let measure   = ref 2000 in
+  let ops       = ref 0 in
   let selected  = ref [] in
   let specs = [
     "--out",     Arg.Set_string out,
@@ -25,7 +26,9 @@ let () =
     "--warmup-ms", Arg.Set_int warmup,
       " warmup duration in ms (default 1000)";
     "--measure-ms", Arg.Set_int measure,
-      " measurement duration in ms (default 2000)";
+      " measurement duration in ms (default 2000, ignored when --ops > 0)";
+    "--ops", Arg.Set_int ops,
+      " ops per thread (fixed-N mode); 0 = time-based (default)";
     "--only", Arg.String (fun s ->
         selected := String.split_on_char ',' s |> List.map String.trim),
       " comma-separated subset of primitives to run";
@@ -43,7 +46,8 @@ let () =
     for r = 0 to !repeats - 1 do
       let res =
         Bench.run ~primitive ~workload ~threads
-          ~warmup_ms:!warmup ~measure_ms:!measure ~repeat:r ~body ()
+          ~warmup_ms:!warmup ~measure_ms:!measure ~ops:!ops
+          ~repeat:r ~body ()
       in
       Bench.pp_stdout res;
       Bench.append_to ~path:!out (Bench.csv_row res)

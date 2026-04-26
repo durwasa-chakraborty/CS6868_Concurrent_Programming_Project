@@ -76,12 +76,42 @@ public final class Bench {
     /**
      * Run one (primitive, workload, threads) benchmark.
      *
+     * <p>If {@code opsPerThread > 0}, runs in fixed-N mode: warm up for
+     * {@code warmupMs}, then each thread performs exactly
+     * {@code opsPerThread} body invocations.  Total ops =
+     * {@code opsPerThread * threads}.  This is the apples-to-apples
+     * mode for comparing wall-clock cost between implementations.
+     *
+     * <p>If {@code opsPerThread == 0}, runs in time-based mode: warm
+     * up for {@code warmupMs}, measure for {@code measureMs}, count
+     * ops.  Reports throughput.
+     *
      * @param body called in a tight loop inside each worker thread with
      *             its thread index. One invocation == one logical op.
      */
     public static Result run(String primitive, String workload, int threads,
+                             long warmupMs, long measureMs, long opsPerThread,
+                             int repeat, IntConsumer body)
+            throws InterruptedException {
+        if (opsPerThread > 0) {
+            return runFixedN(primitive, workload, threads, warmupMs,
+                             opsPerThread, repeat, body);
+        }
+        return runTimed(primitive, workload, threads, warmupMs, measureMs,
+                        repeat, body);
+    }
+
+    /** Backwards-compatible time-based entry point. */
+    public static Result run(String primitive, String workload, int threads,
                              long warmupMs, long measureMs, int repeat,
                              IntConsumer body) throws InterruptedException {
+        return run(primitive, workload, threads, warmupMs, measureMs, 0L,
+                   repeat, body);
+    }
+
+    private static Result runTimed(String primitive, String workload, int threads,
+                                   long warmupMs, long measureMs, int repeat,
+                                   IntConsumer body) throws InterruptedException {
         AtomicBoolean warming = new AtomicBoolean(true);
         AtomicBoolean running = new AtomicBoolean(true);
         long[] counts = new long[threads];
@@ -115,6 +145,42 @@ public final class Bench {
 
         double durationS = (t1 - t0) / 1e9;
         long ops = 0; for (long c : counts) ops += c;
+        double throughput = durationS > 0 ? ops / durationS : 0.0;
+        double meanNs = ops > 0 ? (t1 - t0) * (double) threads / ops : 0.0;
+        return new Result(primitive, workload, threads, ops, durationS,
+                          throughput, meanNs, repeat);
+    }
+
+    private static Result runFixedN(String primitive, String workload, int threads,
+                                    long warmupMs, long opsPerThread, int repeat,
+                                    IntConsumer body) throws InterruptedException {
+        AtomicBoolean warming = new AtomicBoolean(true);
+        CyclicBarrier startGate = new CyclicBarrier(threads + 1);
+
+        Thread[] workers = new Thread[threads];
+        for (int i = 0; i < threads; i++) {
+            final int idx = i;
+            workers[i] = new Thread(() -> {
+                try { startGate.await(); } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                while (warming.get()) body.accept(idx);
+                for (long k = 0; k < opsPerThread; k++) body.accept(idx);
+            }, "bench-" + primitive + "-" + workload + "-" + i);
+            workers[i].start();
+        }
+        try { startGate.await(); } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        Thread.sleep(warmupMs);
+        long t0 = System.nanoTime();
+        warming.set(false);
+        for (Thread t : workers) t.join();
+        long t1 = System.nanoTime();
+
+        long ops = opsPerThread * threads;
+        double durationS = (t1 - t0) / 1e9;
         double throughput = durationS > 0 ? ops / durationS : 0.0;
         double meanNs = ops > 0 ? (t1 - t0) * (double) threads / ops : 0.0;
         return new Result(primitive, workload, threads, ops, durationS,

@@ -37,57 +37,92 @@ let now_ns () =
   (* Nanosecond wall-clock — enough precision for ≥µs-scale operations. *)
   Int64.of_float (Unix.gettimeofday () *. 1e9)
 
+(** [run] supports two measurement modes:
+
+    - [ops = 0] (default): time-based.  Warm up for [warmup_ms], measure
+      for [measure_ms], count ops.  Reports throughput.
+    - [ops > 0]: fixed-N.  Warm up for [warmup_ms], then run exactly
+      [ops] iterations per thread, time the wall clock.  Total ops =
+      [ops * threads].  Use this when you want both implementations to
+      perform the same amount of work and compare wall-clock cost. *)
 let run
     ~primitive
     ~workload
     ~threads
     ?(warmup_ms   = 1000)
     ?(measure_ms  = 3000)
+    ?(ops         = 0)
     ?(repeat      = 0)
     ~(body : int -> unit)
     () : result =
-  (* Shared control flags. *)
-  let warming = Atomic.make true in
-  let running = Atomic.make true in
-  let started = Atomic.make 0 in
-  let counts  = Array.make threads 0 in
+  if ops > 0 then begin
+    (* -------- Fixed-N mode -------- *)
+    let warming = Atomic.make true in
+    let started = Atomic.make 0 in
+    let worker d () =
+      Eio_main.run (fun _env ->
+        Atomic.incr started;
+        while Atomic.get started < threads do Domain.cpu_relax () done;
+        while Atomic.get warming do body d done;
+        for _ = 1 to ops do body d done)
+    in
+    let domains = Array.init threads (fun d -> Domain.spawn (worker d)) in
+    while Atomic.get started < threads do Domain.cpu_relax () done;
+    Unix.sleepf (float warmup_ms /. 1000.);
+    let t0 = now_ns () in
+    Atomic.set warming false;
+    Array.iter Domain.join domains;
+    let t1 = now_ns () in
+    let total_ops  = ops * threads in
+    let elapsed_ns = Int64.to_float (Int64.sub t1 t0) in
+    let duration_s = elapsed_ns /. 1e9 in
+    let throughput = if duration_s > 0. then float total_ops /. duration_s else 0. in
+    let mean_ns =
+      if total_ops > 0 then elapsed_ns *. float threads /. float total_ops else 0.
+    in
+    { primitive; workload; threads; ops = total_ops; duration_s;
+      throughput; mean_ns; repeat }
+  end else begin
+    (* -------- Time-based mode -------- *)
+    let warming = Atomic.make true in
+    let running = Atomic.make true in
+    let started = Atomic.make 0 in
+    let counts  = Array.make threads 0 in
 
-  let worker d () =
-    Eio_main.run (fun _env ->
-      Atomic.incr started;
-      while Atomic.get started < threads do Domain.cpu_relax () done;
-      (* Warm-up — uncounted. *)
-      while Atomic.get warming do body d done;
-      (* Measured window. *)
-      let c = ref 0 in
-      while Atomic.get running do
-        body d;
-        incr c
-      done;
-      counts.(d) <- !c)
-  in
-  let domains = Array.init threads (fun d -> Domain.spawn (worker d)) in
+    let worker d () =
+      Eio_main.run (fun _env ->
+        Atomic.incr started;
+        while Atomic.get started < threads do Domain.cpu_relax () done;
+        while Atomic.get warming do body d done;
+        let c = ref 0 in
+        while Atomic.get running do
+          body d;
+          incr c
+        done;
+        counts.(d) <- !c)
+    in
+    let domains = Array.init threads (fun d -> Domain.spawn (worker d)) in
 
-  (* Wait for all workers to reach the start gate. *)
-  while Atomic.get started < threads do Domain.cpu_relax () done;
-  Unix.sleepf (float warmup_ms /. 1000.);
-  Atomic.set warming false;
+    while Atomic.get started < threads do Domain.cpu_relax () done;
+    Unix.sleepf (float warmup_ms /. 1000.);
+    Atomic.set warming false;
 
-  let t0 = now_ns () in
-  Unix.sleepf (float measure_ms /. 1000.);
-  Atomic.set running false;
-  Array.iter Domain.join domains;
-  let t1 = now_ns () in
+    let t0 = now_ns () in
+    Unix.sleepf (float measure_ms /. 1000.);
+    Atomic.set running false;
+    Array.iter Domain.join domains;
+    let t1 = now_ns () in
 
-  let elapsed_ns = Int64.to_float (Int64.sub t1 t0) in
-  let duration_s = elapsed_ns /. 1e9 in
-  let ops = Array.fold_left (+) 0 counts in
-  let throughput = if duration_s > 0. then float ops /. duration_s else 0. in
-  let mean_ns =
-    if ops > 0 then elapsed_ns *. float threads /. float ops else 0.
-  in
-  { primitive; workload; threads; ops; duration_s;
-    throughput; mean_ns; repeat }
+    let elapsed_ns = Int64.to_float (Int64.sub t1 t0) in
+    let duration_s = elapsed_ns /. 1e9 in
+    let total_ops = Array.fold_left (+) 0 counts in
+    let throughput = if duration_s > 0. then float total_ops /. duration_s else 0. in
+    let mean_ns =
+      if total_ops > 0 then elapsed_ns *. float threads /. float total_ops else 0.
+    in
+    { primitive; workload; threads; ops = total_ops; duration_s;
+      throughput; mean_ns; repeat }
+  end
 
 (* ------------------------------------------------------------------ *)
 (* CSV output                                                          *)
