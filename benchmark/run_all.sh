@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # End-to-end benchmark pipeline:
-#   1. build Java + OCaml drivers
+#   1. build Java + OCaml drivers (and Kotlin if WITH_KOTLIN=1)
 #   2. truncate benchmark/results/summary.csv
-#   3. run each driver (Java first, then OCaml) with matching CLI args
+#   3. run each driver (Java -> OCaml [-> Kotlin]) with matching CLI args
 #   4. hand the CSV to plot.py to emit PNG figures under results/plots/
 #
 # CLI flags override the defaults below; anything after `--` is forwarded
-# verbatim to both drivers (so e.g. `run_all.sh -- --only Semaphore`
-# limits both sides to the Semaphore benchmarks).
+# verbatim to all drivers (so e.g. `run_all.sh -- --only Semaphore`
+# limits every side to the Semaphore benchmarks).
+#
+# Env knobs:
+#   WITH_KOTLIN=1     also build & run benchmark/kotlin/run.sh after the
+#                     Java/OCaml passes.  Kotlin only covers the Mutex,
+#                     Semaphore, and BlockingQueuePool primitives — it has
+#                     no suspending counterparts for BlockingStackPool,
+#                     CountDownLatch, or Barrier; plot.py drops those rows
+#                     from the cross-impl charts when Kotlin data is
+#                     present.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -19,10 +28,7 @@ THREADS="${THREADS:-1,2,4,8}"
 REPEATS="${REPEATS:-3}"
 WARMUP_MS="${WARMUP_MS:-1000}"
 MEASURE_MS="${MEASURE_MS:-2000}"
-# Fixed-N mode: each thread performs exactly OPS body invocations on the
-# Semaphore/Mutex bodies (Pool/Latch/Barrier already use cycles*pairs).
-# Set OPS=0 to fall back to the time-based MEASURE_MS window.
-OPS="${OPS:-2000000}"
+WITH_KOTLIN="${WITH_KOTLIN:-}"
 
 EXTRA=()
 while [[ $# -gt 0 ]]; do
@@ -31,7 +37,6 @@ while [[ $# -gt 0 ]]; do
     --repeats)    REPEATS="$2"; shift 2;;
     --warmup-ms)  WARMUP_MS="$2"; shift 2;;
     --measure-ms) MEASURE_MS="$2"; shift 2;;
-    --ops)        OPS="$2"; shift 2;;
     --)           shift; EXTRA=("$@"); break;;
     *)            EXTRA+=("$1"); shift;;
   esac
@@ -39,8 +44,10 @@ done
 
 echo "=== building benchmarks ==="
 "$HERE/java/build.sh"
-"$HERE/kotlin/build.sh"
 ( cd "$ROOT" && dune build benchmark/ocaml )
+if [[ "$WITH_KOTLIN" == "1" ]]; then
+  "$HERE/kotlin/build.sh"
+fi
 
 mkdir -p "$HERE/results" "$PLOT_DIR"
 rm -f "$OUT_CSV"
@@ -51,7 +58,6 @@ COMMON=(
   --repeats "$REPEATS"
   --warmup-ms "$WARMUP_MS"
   --measure-ms "$MEASURE_MS"
-  --ops "$OPS"
 )
 
 # Printing args:
@@ -64,14 +70,16 @@ echo ""
 echo "=== Java (AbstractQueueSynchronizer-backed primitives) ==="
 "$HERE/java/run.sh" "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}"
 
-# Running Java benchmarks
-echo ""
-echo "=== Kotlin (kotlinx.coroutines suspending primitives) ==="
-"$HERE/kotlin/run.sh" "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}"
-
+# Running OCaml benchmarks
 echo ""
 echo "=== OCaml (SQS-backed primitives) ==="
 ( cd "$ROOT" && _build/default/benchmark/ocaml/bench_runner.exe "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}" )
+
+if [[ "$WITH_KOTLIN" == "1" ]]; then
+  echo ""
+  echo "=== Kotlin (kotlinx.coroutines primitives) ==="
+  "$HERE/kotlin/run.sh" "${COMMON[@]}" "${EXTRA[@]+${EXTRA[@]}}"
+fi
 
 echo ""
 echo "=== summary written to $OUT_CSV ==="

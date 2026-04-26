@@ -12,20 +12,21 @@ import kotlin.system.exitProcess
  * Kotlin benchmark driver — mirrors `benchmark/java/.../BenchRunner.java` and
  * `benchmark/ocaml/bench_runner.ml`.
  *
- * Exercises the `kotlinx.coroutines` SQS-style primitives — `Mutex`, `Semaphore`,
- * and `Channel` — across the same workloads as the Java/OCaml runners.  The CSV
- * row schema is identical so all three implementations land in the same
- * `summary.csv` and the plot can compare them directly.
+ * Exercises the `kotlinx.coroutines` SQS-style primitives — `Mutex`,
+ * `Semaphore`, and `Channel` (FIFO, used as BlockingQueuePool) — across the
+ * same workloads as the Java/OCaml runners.  The CSV row schema is
+ * identical so all three implementations land in the same `summary.csv`
+ * and the plot can compare them directly.
  *
- * Coverage gaps (relative to Java/OCaml):
- *   - BlockingStackPool: no built-in LIFO suspending channel in kotlinx.coroutines;
- *     omitted to avoid implementing a custom Treiber-stack-with-suspend.
- *   - CountDownLatch / Barrier: not provided by kotlinx.coroutines as suspending
- *     primitives; would require a hand-rolled implementation.  Omitted for now.
+ * Coverage gaps relative to Java/OCaml (kotlinx.coroutines does not ship
+ * suspending counterparts, so these primitives are intentionally omitted):
+ *   - BlockingStackPool  (no LIFO suspending channel)
+ *   - CountDownLatch     (no suspending latch)
+ *   - Barrier            (no suspending cyclic barrier)
  *
  * CLI matches the other runners exactly:
  *   --out PATH --threads 1,2,4,8 --repeats N --warmup-ms N --measure-ms N
- *   --ops N --only Mutex,Semaphore,...
+ *   --only Mutex,Semaphore,...
  */
 fun main(args: Array<String>) {
     var out: Path = Paths.get("benchmark/results/summary.csv")
@@ -33,7 +34,6 @@ fun main(args: Array<String>) {
     var repeats = 3
     var warmupMs = 1000L
     var measureMs = 2000L
-    var opsPerThread = 0L
     val selected = mutableSetOf<String>()
 
     var i = 0
@@ -44,7 +44,6 @@ fun main(args: Array<String>) {
             "--repeats"    -> { repeats = args[++i].toInt() }
             "--warmup-ms"  -> { warmupMs = args[++i].toLong() }
             "--measure-ms" -> { measureMs = args[++i].toLong() }
-            "--ops"        -> { opsPerThread = args[++i].toLong() }
             "--only"       -> { selected.addAll(args[++i].split(",")) }
             else -> {
                 System.err.println("Unknown arg: ${args[i]}")
@@ -58,35 +57,35 @@ fun main(args: Array<String>) {
     val capped = threads.filter { it <= cores }.ifEmpty { listOf(1) }
 
     runBlocking {
-        // ---------------- Mutex ----------------
-        if (wanted(selected, "Mutex")) {
-            for (t in capped) {
-                val m = Mutex()
-                runMany("Mutex", "W2_contended", t,
-                    warmupMs, measureMs, opsPerThread, repeats, out) { _ ->
-                        m.lock(); m.unlock()
-                    }
-            }
-            val m = Mutex()
-            runMany("Mutex", "W1_uncontended", 1,
-                warmupMs, measureMs, opsPerThread, repeats, out) { _ ->
-                    m.lock(); m.unlock()
-                }
-        }
-
         // ---------------- Semaphore ----------------
         if (wanted(selected, "Semaphore")) {
             for (t in capped) {
                 val s = Semaphore(1)
                 runMany("Semaphore(1)", "W2_contended", t,
-                    warmupMs, measureMs, opsPerThread, repeats, out) { _ ->
+                    warmupMs, measureMs, repeats, out) { _ ->
                         s.acquire(); s.release()
                     }
             }
             val s = Semaphore(1)
             runMany("Semaphore(1)", "W1_uncontended", 1,
-                warmupMs, measureMs, opsPerThread, repeats, out) { _ ->
+                warmupMs, measureMs, repeats, out) { _ ->
                     s.acquire(); s.release()
+                }
+        }
+
+        // ---------------- Mutex ----------------
+        if (wanted(selected, "Mutex")) {
+            for (t in capped) {
+                val m = Mutex()
+                runMany("Mutex", "W2_contended", t,
+                    warmupMs, measureMs, repeats, out) { _ ->
+                        m.lock(); m.unlock()
+                    }
+            }
+            val m = Mutex()
+            runMany("Mutex", "W1_uncontended", 1,
+                warmupMs, measureMs, repeats, out) { _ ->
+                    m.lock(); m.unlock()
                 }
         }
 
@@ -142,13 +141,12 @@ private suspend fun <C> runPoolCycles(
 
 private suspend fun runMany(
     primitive: String, workload: String, threads: Int,
-    warmupMs: Long, measureMs: Long, opsPerThread: Long,
-    repeats: Int, out: Path,
+    warmupMs: Long, measureMs: Long, repeats: Int, out: Path,
     body: suspend (Int) -> Unit
 ) {
     for (r in 0 until repeats) {
         val res = Bench.run(primitive, workload, threads,
-            warmupMs, measureMs, opsPerThread, r, body)
+            warmupMs, measureMs, r, body)
         res.printStdout()
         Bench.appendTo(out, res)
     }

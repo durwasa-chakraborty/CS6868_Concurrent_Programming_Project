@@ -12,12 +12,14 @@ import java.util.concurrent.atomic.AtomicInteger
  * Coroutine-based benchmark harness mirroring `benchmark/java/.../Bench.java`
  * and `benchmark/ocaml/bench.ml`.
  *
- * Each "thread" is a coroutine launched on `Dispatchers.Default.limitedParallelism(threads)`,
- * so worker count == thread count.  This is the closest analog to OCaml's
- * domains/Eio fibres: a fixed worker pool, with cooperative suspension when
- * a primitive parks the caller.
+ * Each "thread" is a coroutine launched on
+ * `Dispatchers.Default.limitedParallelism(threads)`, so worker count ==
+ * thread count.  This is the closest analog to OCaml's domains/Eio fibres:
+ * a fixed worker pool with cooperative suspension when a primitive parks
+ * the caller.
  *
- * CSV schema matches the Java/OCaml side; `implementation` is always `"kotlin"`.
+ * CSV schema matches the Java/OCaml side; `implementation` is always
+ * `"kotlin"`.
  */
 object Bench {
     const val CSV_HEADER =
@@ -45,23 +47,8 @@ object Bench {
         }
     }
 
-    /**
-     * One (primitive, workload, threads) benchmark.  If [opsPerThread] > 0,
-     * fixed-N mode (each coroutine performs exactly that many body invocations
-     * after warmup); else time-based (warmup + fixed measurement window).
-     */
-    suspend fun run(
-        primitive: String, workload: String, threads: Int,
-        warmupMs: Long, measureMs: Long, opsPerThread: Long, repeat: Int,
-        body: suspend (Int) -> Unit
-    ): Result =
-        if (opsPerThread > 0)
-            runFixedN(primitive, workload, threads, warmupMs, opsPerThread, repeat, body)
-        else
-            runTimed(primitive, workload, threads, warmupMs, measureMs, repeat, body)
-
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun runTimed(
+    suspend fun run(
         primitive: String, workload: String, threads: Int,
         warmupMs: Long, measureMs: Long, repeat: Int,
         body: suspend (Int) -> Unit
@@ -92,38 +79,6 @@ object Bench {
 
         val durationS  = (t1 - t0) / 1e9
         val ops        = counts.sum()
-        val throughput = if (durationS > 0) ops / durationS else 0.0
-        val meanNs     = if (ops > 0) (t1 - t0) * threads.toDouble() / ops else 0.0
-        Result(primitive, workload, threads, ops, durationS, throughput, meanNs, repeat)
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun runFixedN(
-        primitive: String, workload: String, threads: Int,
-        warmupMs: Long, opsPerThread: Long, repeat: Int,
-        body: suspend (Int) -> Unit
-    ): Result = coroutineScope {
-        val warming = AtomicBoolean(true)
-        val ready   = AtomicInteger(0)
-        val dispatcher = Dispatchers.Default.limitedParallelism(threads)
-
-        val workers = (0 until threads).map { i ->
-            launch(dispatcher) {
-                ready.incrementAndGet()
-                while (warming.get()) body(i)
-                var k = 0L
-                while (k < opsPerThread) { body(i); k++ }
-            }
-        }
-        while (ready.get() < threads) yield()
-        delay(warmupMs)
-        val t0 = System.nanoTime()
-        warming.set(false)
-        workers.forEach { it.join() }
-        val t1 = System.nanoTime()
-
-        val ops        = opsPerThread * threads
-        val durationS  = (t1 - t0) / 1e9
         val throughput = if (durationS > 0) ops / durationS else 0.0
         val meanNs     = if (ops > 0) (t1 - t0) * threads.toDouble() / ops else 0.0
         Result(primitive, workload, threads, ops, durationS, throughput, meanNs, repeat)

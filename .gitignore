@@ -41,3 +41,9 @@ setup.log
 
 # Local OPAM switch
 _opam/
+
+# Benchmark build artifacts
+benchmark/java/classes/
+benchmark/kotlin/classes/
+benchmark/results/
+.DS_Store

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run the Kotlin benchmark driver.  All arguments are forwarded to
-# BenchRunner (e.g. --out, --threads, --repeats, --ops).
+# BenchRunner (e.g. --out, --threads, --repeats).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

@@ -7,7 +7,7 @@
         lin-semaphore lin-latch lin-barrier lin-pool \
         qcheck-lin-semaphore qcheck-lin-latch \
         manual-semaphore manual-latch manual-barrier manual-pool manual-mutex \
-        bench bench-build bench-java bench-kotlin bench-ocaml bench-run bench-plot bench-clean
+        bench bench-build bench-java bench-ocaml bench-kotlin bench-run bench-plot bench-clean
 
 # -----------------------------------------------------------------------------
 # Defaults
@@ -108,28 +108,47 @@ manual-mutex:
 	dune exec test/mutex_manual_test.exe
 
 # -----------------------------------------------------------------------------
-# Task 6 — OCaml SQS vs Java AQS benchmark suite
+# Task 6 / Task 7 — OCaml SQS vs Java AQS (vs Kotlin coroutines) bench suite
 # -----------------------------------------------------------------------------
+#
+# Flag: WITH_KOTLIN=1
+#   off (default) — Java + OCaml only, exactly the 84a2488 baseline.
+#   on            — also builds and runs the Kotlin coroutine driver and
+#                   feeds its rows into the same summary.csv so the plot
+#                   covers all three implementations.  Kotlin only exposes
+#                   Mutex / Semaphore / BlockingQueuePool counterparts;
+#                   plot.py drops the BlockingStackPool / CountDownLatch /
+#                   Barrier rows whenever Kotlin is in the CSV so the
+#                   cross-impl charts stay apples-to-apples.
+#
+#   make bench                 # Java + OCaml
+#   make bench WITH_KOTLIN=1   # Java + OCaml + Kotlin
+
+WITH_KOTLIN ?=
 
 bench: bench-build bench-run bench-plot
 
-bench-build: bench-java bench-kotlin bench-ocaml
+ifeq ($(WITH_KOTLIN),1)
+bench-build: bench-java bench-ocaml bench-kotlin
+else
+bench-build: bench-java bench-ocaml
+endif
 
 bench-java:
 	@echo "=== Task 6: building Java benchmark classes ==="
 	benchmark/java/build.sh
 
-bench-kotlin:
-	@echo "=== Task 6: building Kotlin benchmark classes ==="
-	benchmark/kotlin/build.sh
-
 bench-ocaml:
 	@echo "=== Task 6: building OCaml benchmark driver ==="
 	dune build benchmark/ocaml
 
+bench-kotlin:
+	@echo "=== Task 7: building Kotlin benchmark classes ==="
+	benchmark/kotlin/build.sh
+
 bench-run:
 	@echo "=== Task 6: running benchmarks (writes benchmark/results/summary.csv) ==="
-	bash benchmark/run_all.sh
+	WITH_KOTLIN=$(WITH_KOTLIN) bash benchmark/run_all.sh
 
 bench-plot:
 	@echo "=== Task 6: regenerating plots from summary.csv ==="
@@ -175,11 +194,14 @@ help:
 	@echo "  make manual-pool           FIFO/LIFO order, no lost items, stress"
 	@echo "  make manual-mutex          mutual excl, cross-domain wakeup"
 	@echo ""
-	@echo "Task 6 — benchmarks (OCaml SQS vs Java AQS):"
-	@echo "  make bench                 build + run + plot"
-	@echo "  make bench-build           compile Java + OCaml drivers"
+	@echo "Task 6 / Task 7 — benchmarks (OCaml SQS vs Java AQS [vs Kotlin]):"
+	@echo "  make bench                 build + run + plot (Java + OCaml)"
+	@echo "  make bench WITH_KOTLIN=1   same, but also include Kotlin coroutines"
+	@echo "  make bench-build           compile drivers (honours WITH_KOTLIN=1)"
 	@echo "  make bench-java            compile only Java"
 	@echo "  make bench-ocaml           compile only OCaml"
+	@echo "  make bench-kotlin          compile only Kotlin"
 	@echo "  make bench-run             run benchmarks; writes summary.csv"
+	@echo "                             (set WITH_KOTLIN=1 to include Kotlin)"
 	@echo "  make bench-plot            regenerate PNGs from summary.csv"
 	@echo "  make bench-clean           remove classes/ and results/"
