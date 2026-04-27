@@ -1,0 +1,94 @@
+ok  sequential_basic
+ok  await_after_fire
+==================
+WARNING: ThreadSanitizer: data race (pid=62152)
+  Atomic read of size 8 at 0x0001017bbfa0 by thread T6 (mutexes: write M0):
+    #0 caml_install_signal_handler signals.c:700 (count_down_latch_manual_test.exe:arm64+0x1001f191c)
+    #1 caml_c_call <null> (count_down_latch_manual_test.exe:arm64+0x1001fce7c)
+    #2 camlStdlib__Sys.set_signal_322 <null> (count_down_latch_manual_test.exe:arm64+0x1000dc220)
+    #3 camlEio_posix.fun_1013 <null> (count_down_latch_manual_test.exe:arm64+0x100024230)
+    #4 camlStdlib__Domain.body_741 <null> (count_down_latch_manual_test.exe:arm64+0x100132208)
+    #5 caml_start_program <null> (count_down_latch_manual_test.exe:arm64+0x1001fd00c)
+    #6 caml_callback_exn callback.c:206 (count_down_latch_manual_test.exe:arm64+0x1001b6bdc)
+    #7 caml_callback_res callback.c:321 (count_down_latch_manual_test.exe:arm64+0x1001b752c)
+    #8 domain_thread_func domain.c:1245 (count_down_latch_manual_test.exe:arm64+0x1001bb060)
+
+  Previous write of size 8 at 0x0001017bbfa0 by thread T4 (mutexes: write M1, write M2):
+    #0 caml_modify memory.c:225 (count_down_latch_manual_test.exe:arm64+0x1001df044)
+    #1 caml_install_signal_handler signals.c:718 (count_down_latch_manual_test.exe:arm64+0x1001f19ec)
+    #2 caml_c_call <null> (count_down_latch_manual_test.exe:arm64+0x1001fce7c)
+    #3 camlStdlib__Sys.set_signal_322 <null> (count_down_latch_manual_test.exe:arm64+0x1000dc220)
+    #4 camlEio_posix.fun_1013 <null> (count_down_latch_manual_test.exe:arm64+0x100024230)
+    #5 camlStdlib__Domain.body_741 <null> (count_down_latch_manual_test.exe:arm64+0x100132208)
+    #6 caml_start_program <null> (count_down_latch_manual_test.exe:arm64+0x1001fd00c)
+    #7 caml_callback_exn callback.c:206 (count_down_latch_manual_test.exe:arm64+0x1001b6bdc)
+    #8 caml_callback_res callback.c:321 (count_down_latch_manual_test.exe:arm64+0x1001b752c)
+    #9 domain_thread_func domain.c:1245 (count_down_latch_manual_test.exe:arm64+0x1001bb060)
+
+  Mutex M0 (0x000105700328) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (count_down_latch_manual_test.exe:arm64+0x1001e9b74)
+    #2 caml_init_domains domain.c:974 (count_down_latch_manual_test.exe:arm64+0x1001ba334)
+    #3 caml_init_gc gc_ctrl.c:348 (count_down_latch_manual_test.exe:arm64+0x1001caa10)
+    #4 caml_startup_common startup_nat.c:106 (count_down_latch_manual_test.exe:arm64+0x1001fc3e4)
+    #5 caml_main startup_nat.c:146 (count_down_latch_manual_test.exe:arm64+0x1001fc5c0)
+    #6 main main.c:37 (count_down_latch_manual_test.exe:arm64+0x1001d94e0)
+
+  Mutex M1 (0x0001057001f0) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (count_down_latch_manual_test.exe:arm64+0x1001e9b74)
+    #2 caml_init_domains domain.c:974 (count_down_latch_manual_test.exe:arm64+0x1001ba334)
+    #3 caml_init_gc gc_ctrl.c:348 (count_down_latch_manual_test.exe:arm64+0x1001caa10)
+    #4 caml_startup_common startup_nat.c:106 (count_down_latch_manual_test.exe:arm64+0x1001fc3e4)
+    #5 caml_main startup_nat.c:146 (count_down_latch_manual_test.exe:arm64+0x1001fc5c0)
+    #6 main main.c:37 (count_down_latch_manual_test.exe:arm64+0x1001d94e0)
+
+  Mutex M2 (0x000100ee8d18) created at:
+    #0 pthread_mutex_lock <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x3488c)
+    #1 caml_install_signal_handler signals.c:711 (count_down_latch_manual_test.exe:arm64+0x1001f1988)
+    #2 caml_c_call <null> (count_down_latch_manual_test.exe:arm64+0x1001fce7c)
+    #3 camlStdlib__Sys.set_signal_322 <null> (count_down_latch_manual_test.exe:arm64+0x1000dc220)
+    #4 camlEio_posix.fun_1013 <null> (count_down_latch_manual_test.exe:arm64+0x100024230)
+    #5 camlDune__exe__Count_down_latch_manual_test.entry <null> (count_down_latch_manual_test.exe:arm64+0x100005e0c)
+    #6 caml_program <null> (count_down_latch_manual_test.exe:arm64+0x1000016f0)
+    #7 caml_start_program <null> (count_down_latch_manual_test.exe:arm64+0x1001fd00c)
+    #8 caml_startup_common startup_nat.c:127 (count_down_latch_manual_test.exe:arm64+0x1001fc4e8)
+    #9 caml_main startup_nat.c:146 (count_down_latch_manual_test.exe:arm64+0x1001fc5c0)
+    #10 main main.c:37 (count_down_latch_manual_test.exe:arm64+0x1001d94e0)
+
+  Thread T6 (tid=14184636, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (count_down_latch_manual_test.exe:arm64+0x1001bad50)
+    #2 caml_c_call <null> (count_down_latch_manual_test.exe:arm64+0x1001fce7c)
+    #3 camlStdlib__Domain.spawn_736 <null> (count_down_latch_manual_test.exe:arm64+0x100132100)
+    #4 camlStdlib__Array.init_291 <null> (count_down_latch_manual_test.exe:arm64+0x10010ab30)
+    #5 camlDune__exe__Count_down_latch_manual_test.test_multiple_awaiters_612 <null> (count_down_latch_manual_test.exe:arm64+0x10000534c)
+    #6 camlDune__exe__Count_down_latch_manual_test.entry <null> (count_down_latch_manual_test.exe:arm64+0x100005e4c)
+    #7 caml_program <null> (count_down_latch_manual_test.exe:arm64+0x1000016f0)
+    #8 caml_start_program <null> (count_down_latch_manual_test.exe:arm64+0x1001fd00c)
+    #9 caml_startup_common startup_nat.c:127 (count_down_latch_manual_test.exe:arm64+0x1001fc4e8)
+    #10 caml_main startup_nat.c:146 (count_down_latch_manual_test.exe:arm64+0x1001fc5c0)
+    #11 main main.c:37 (count_down_latch_manual_test.exe:arm64+0x1001d94e0)
+
+  Thread T4 (tid=14184634, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (count_down_latch_manual_test.exe:arm64+0x1001bad50)
+    #2 caml_c_call <null> (count_down_latch_manual_test.exe:arm64+0x1001fce7c)
+    #3 camlStdlib__Domain.spawn_736 <null> (count_down_latch_manual_test.exe:arm64+0x100132100)
+    #4 camlStdlib__Array.init_291 <null> (count_down_latch_manual_test.exe:arm64+0x10010aac4)
+    #5 camlDune__exe__Count_down_latch_manual_test.test_multiple_awaiters_612 <null> (count_down_latch_manual_test.exe:arm64+0x10000534c)
+    #6 camlDune__exe__Count_down_latch_manual_test.entry <null> (count_down_latch_manual_test.exe:arm64+0x100005e4c)
+    #7 caml_program <null> (count_down_latch_manual_test.exe:arm64+0x1000016f0)
+    #8 caml_start_program <null> (count_down_latch_manual_test.exe:arm64+0x1001fd00c)
+    #9 caml_startup_common startup_nat.c:127 (count_down_latch_manual_test.exe:arm64+0x1001fc4e8)
+    #10 caml_main startup_nat.c:146 (count_down_latch_manual_test.exe:arm64+0x1001fc5c0)
+    #11 main main.c:37 (count_down_latch_manual_test.exe:arm64+0x1001d94e0)
+
+SUMMARY: ThreadSanitizer: data race signals.c:700 in caml_install_signal_handler
+==================
+ok  await_before_fire
+ok  multiple_awaiters
+ok  concurrent_count_downs
+
+All Count_down_latch manual tests passed!
+ThreadSanitizer: reported 1 warnings

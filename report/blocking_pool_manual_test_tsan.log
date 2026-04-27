@@ -1,0 +1,12 @@
+ok  queue.sequential_basic
+ok  queue.blocking_retrieve
+ok  queue.ordering
+ok  queue.no_lost_items
+ok  queue.stress
+ok  stack.sequential_basic
+ok  stack.blocking_retrieve
+ok  stack.ordering
+ok  stack.no_lost_items
+ok  stack.stress
+
+All blocking-pool manual tests passed!

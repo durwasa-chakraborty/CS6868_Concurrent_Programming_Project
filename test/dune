@@ -42,8 +42,8 @@
  (name count_down_latch_lin_test)
  (modules count_down_latch_lin_test)
  (libraries sqs_eio sqs_primitives lin_harness_lib qcheck-core qcheck-core.runner eio_main)
- (ocamlopt_flags (:standard -w -21-32))
- (ocamlc_flags (:standard -w -21-32)))
+ (ocamlopt_flags (:standard -w -21-32 -alert -deprecated))
+ (ocamlc_flags (:standard -w -21-32 -alert -deprecated)))
 
 (test
  (name barrier_lin_test)
@@ -116,5 +116,29 @@
  (name mutex_manual_test)
  (modules mutex_manual_test)
  (libraries sqs_eio sqs_primitives eio_main unix)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+; ===========================================================================
+; Task 8: qcheck-stm state-machine tests for SQS-based primitives.
+; Non-blocking command subsets only (sequential + 3-domain concurrent).
+; The cell-state correspondence is documented in each test's header
+; comment; correctness of the primitive-level model implies validity
+; of the per-command path through the SQS cell state machine.
+; ===========================================================================
+
+(test
+ (name qcheck_stm_semaphore)
+ (modules qcheck_stm_semaphore)
+ (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner
+            qcheck-stm.stm qcheck-stm.sequential qcheck-stm.domain)
+ (ocamlopt_flags (:standard -w -21-32))
+ (ocamlc_flags (:standard -w -21-32)))
+
+(test
+ (name qcheck_stm_count_down_latch)
+ (modules qcheck_stm_count_down_latch)
+ (libraries sqs_eio sqs_primitives qcheck-core qcheck-core.runner
+            qcheck-stm.stm qcheck-stm.sequential qcheck-stm.domain)
  (ocamlopt_flags (:standard -w -21-32))
  (ocamlc_flags (:standard -w -21-32)))

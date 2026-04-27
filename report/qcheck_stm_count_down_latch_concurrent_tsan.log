@@ -1,0 +1,6 @@
+Running concurrent STM test on CountDownLatch...
+[2Krandom seed: 376830292
+generated error fail pass / total     time test name
+[2K[ ]    0    0    0    0 /  200     0.0s CountDownLatch concurrent[2K[ ]  200    0    0  200 /  200     0.1s CountDownLatch concurrent[2K[[32;1m✓[0m]  200    0    0  200 /  200     0.1s CountDownLatch concurrent
+================================================================================
+[32;1msuccess[0m (ran 1 tests)

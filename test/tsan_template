@@ -1,0 +1,32 @@
+## Part 5: TSAN Verification
+
+Use ThreadSanitizer to verify your implementation is data-race-free.
+
+### Setup
+
+You need OCaml with TSAN support:
+
+```bash
+# Disable ASLR (Has to be executed after every reboot)
+sudo sysctl -w kernel.randomize_va_space=0
+
+# Install TSAN-enabled compiler
+opam switch create 5.4.0+tsan ocaml-variants.5.4.0+options ocaml-option-tsan
+eval $(opam env)
+```
+
+### Testing for Data Races
+
+
+#### Test 1: Atomic Implementation (should be race-free)
+
+
+**Expected:** Clean run with no TSAN warnings.
+
+### Report (submit as `TSAN_REPORT.md`)
+
+Document your findings:
+
+1. What data races did TSAN detect with refs?
+2. Why does atomic implementation avoid races?
+3. Screenshot or copy TSAN output for both cases

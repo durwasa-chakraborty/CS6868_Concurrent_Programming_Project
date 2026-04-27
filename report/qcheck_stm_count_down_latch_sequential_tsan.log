@@ -1,0 +1,6 @@
+Running sequential STM test on CountDownLatch...
+[2Krandom seed: 287875837
+generated error fail pass / total     time test name
+[2K[ ]    0    0    0    0 / 1000     0.0s CountDownLatch sequential[2K[[32;1m✓[0m] 1000    0    0 1000 / 1000     0.0s CountDownLatch sequential
+================================================================================
+[32;1msuccess[0m (ran 1 tests)

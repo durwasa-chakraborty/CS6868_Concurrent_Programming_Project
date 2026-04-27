@@ -1,0 +1,92 @@
+ok  sequential_basic
+==================
+WARNING: ThreadSanitizer: data race (pid=62165)
+  Atomic read of size 8 at 0x000105bd3fa0 by thread T4 (mutexes: write M0):
+    #0 caml_install_signal_handler signals.c:700 (barrier_manual_test.exe:arm64+0x1001f1124)
+    #1 caml_c_call <null> (barrier_manual_test.exe:arm64+0x1001fc684)
+    #2 camlStdlib__Sys.set_signal_322 <null> (barrier_manual_test.exe:arm64+0x1000dba28)
+    #3 camlEio_posix.fun_1013 <null> (barrier_manual_test.exe:arm64+0x100023a38)
+    #4 camlStdlib__Domain.body_741 <null> (barrier_manual_test.exe:arm64+0x100131a10)
+    #5 caml_start_program <null> (barrier_manual_test.exe:arm64+0x1001fc814)
+    #6 caml_callback_exn callback.c:206 (barrier_manual_test.exe:arm64+0x1001b63e4)
+    #7 caml_callback_res callback.c:321 (barrier_manual_test.exe:arm64+0x1001b6d34)
+    #8 domain_thread_func domain.c:1245 (barrier_manual_test.exe:arm64+0x1001ba868)
+
+  Previous write of size 8 at 0x000105bd3fa0 by thread T1 (mutexes: write M1, write M2):
+    #0 caml_modify memory.c:225 (barrier_manual_test.exe:arm64+0x1001de84c)
+    #1 caml_install_signal_handler signals.c:718 (barrier_manual_test.exe:arm64+0x1001f11f4)
+    #2 caml_c_call <null> (barrier_manual_test.exe:arm64+0x1001fc684)
+    #3 camlStdlib__Sys.set_signal_322 <null> (barrier_manual_test.exe:arm64+0x1000dba28)
+    #4 camlEio_posix.fun_1013 <null> (barrier_manual_test.exe:arm64+0x100023a38)
+    #5 camlStdlib__Domain.body_741 <null> (barrier_manual_test.exe:arm64+0x100131a10)
+    #6 caml_start_program <null> (barrier_manual_test.exe:arm64+0x1001fc814)
+    #7 caml_callback_exn callback.c:206 (barrier_manual_test.exe:arm64+0x1001b63e4)
+    #8 caml_callback_res callback.c:321 (barrier_manual_test.exe:arm64+0x1001b6d34)
+    #9 domain_thread_func domain.c:1245 (barrier_manual_test.exe:arm64+0x1001ba868)
+
+  Mutex M0 (0x000107c00328) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (barrier_manual_test.exe:arm64+0x1001e937c)
+    #2 caml_init_domains domain.c:974 (barrier_manual_test.exe:arm64+0x1001b9b3c)
+    #3 caml_init_gc gc_ctrl.c:348 (barrier_manual_test.exe:arm64+0x1001ca218)
+    #4 caml_startup_common startup_nat.c:106 (barrier_manual_test.exe:arm64+0x1001fbbec)
+    #5 caml_main startup_nat.c:146 (barrier_manual_test.exe:arm64+0x1001fbdc8)
+    #6 main main.c:37 (barrier_manual_test.exe:arm64+0x1001d8ce8)
+
+  Mutex M1 (0x000107c001f0) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (barrier_manual_test.exe:arm64+0x1001e937c)
+    #2 caml_init_domains domain.c:974 (barrier_manual_test.exe:arm64+0x1001b9b3c)
+    #3 caml_init_gc gc_ctrl.c:348 (barrier_manual_test.exe:arm64+0x1001ca218)
+    #4 caml_startup_common startup_nat.c:106 (barrier_manual_test.exe:arm64+0x1001fbbec)
+    #5 caml_main startup_nat.c:146 (barrier_manual_test.exe:arm64+0x1001fbdc8)
+    #6 main main.c:37 (barrier_manual_test.exe:arm64+0x1001d8ce8)
+
+  Mutex M2 (0x000103300618) created at:
+    #0 pthread_mutex_lock <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x3488c)
+    #1 caml_install_signal_handler signals.c:711 (barrier_manual_test.exe:arm64+0x1001f1190)
+    #2 caml_c_call <null> (barrier_manual_test.exe:arm64+0x1001fc684)
+    #3 camlStdlib__Sys.set_signal_322 <null> (barrier_manual_test.exe:arm64+0x1000dba28)
+    #4 camlEio_posix.fun_1013 <null> (barrier_manual_test.exe:arm64+0x100023a38)
+    #5 camlDune__exe__Barrier_manual_test.entry <null> (barrier_manual_test.exe:arm64+0x100005894)
+    #6 caml_program <null> (barrier_manual_test.exe:arm64+0x1000016f0)
+    #7 caml_start_program <null> (barrier_manual_test.exe:arm64+0x1001fc814)
+    #8 caml_startup_common startup_nat.c:127 (barrier_manual_test.exe:arm64+0x1001fbcf0)
+    #9 caml_main startup_nat.c:146 (barrier_manual_test.exe:arm64+0x1001fbdc8)
+    #10 main main.c:37 (barrier_manual_test.exe:arm64+0x1001d8ce8)
+
+  Thread T4 (tid=14184738, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (barrier_manual_test.exe:arm64+0x1001ba558)
+    #2 caml_c_call <null> (barrier_manual_test.exe:arm64+0x1001fc684)
+    #3 camlStdlib__Domain.spawn_736 <null> (barrier_manual_test.exe:arm64+0x100131908)
+    #4 camlStdlib__Array.init_291 <null> (barrier_manual_test.exe:arm64+0x10010a338)
+    #5 camlDune__exe__Barrier_manual_test.test_rendezvous_329 <null> (barrier_manual_test.exe:arm64+0x100004bdc)
+    #6 camlDune__exe__Barrier_manual_test.entry <null> (barrier_manual_test.exe:arm64+0x1000058b4)
+    #7 caml_program <null> (barrier_manual_test.exe:arm64+0x1000016f0)
+    #8 caml_start_program <null> (barrier_manual_test.exe:arm64+0x1001fc814)
+    #9 caml_startup_common startup_nat.c:127 (barrier_manual_test.exe:arm64+0x1001fbcf0)
+    #10 caml_main startup_nat.c:146 (barrier_manual_test.exe:arm64+0x1001fbdc8)
+    #11 main main.c:37 (barrier_manual_test.exe:arm64+0x1001d8ce8)
+
+  Thread T1 (tid=14184735, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (barrier_manual_test.exe:arm64+0x1001ba558)
+    #2 caml_c_call <null> (barrier_manual_test.exe:arm64+0x1001fc684)
+    #3 camlStdlib__Domain.spawn_736 <null> (barrier_manual_test.exe:arm64+0x100131908)
+    #4 camlStdlib__Array.init_291 <null> (barrier_manual_test.exe:arm64+0x10010a2cc)
+    #5 camlDune__exe__Barrier_manual_test.test_rendezvous_329 <null> (barrier_manual_test.exe:arm64+0x100004bdc)
+    #6 camlDune__exe__Barrier_manual_test.entry <null> (barrier_manual_test.exe:arm64+0x1000058b4)
+    #7 caml_program <null> (barrier_manual_test.exe:arm64+0x1000016f0)
+    #8 caml_start_program <null> (barrier_manual_test.exe:arm64+0x1001fc814)
+    #9 caml_startup_common startup_nat.c:127 (barrier_manual_test.exe:arm64+0x1001fbcf0)
+    #10 caml_main startup_nat.c:146 (barrier_manual_test.exe:arm64+0x1001fbdc8)
+    #11 main main.c:37 (barrier_manual_test.exe:arm64+0x1001d8ce8)
+
+SUMMARY: ThreadSanitizer: data race signals.c:700 in caml_install_signal_handler
+==================
+ok  rendezvous
+ok  excess_arrivals
+
+All Barrier manual tests passed!
+ThreadSanitizer: reported 1 warnings

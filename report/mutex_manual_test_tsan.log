@@ -1,0 +1,5 @@
+ok  sequential_basic
+ok  mutual_exclusion
+ok  cross_domain_wakeup
+
+All Mutex manual tests passed!

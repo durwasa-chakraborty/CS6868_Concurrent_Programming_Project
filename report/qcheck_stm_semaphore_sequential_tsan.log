@@ -1,0 +1,6 @@
+Running sequential STM test on Semaphore...
+[2Krandom seed: 275307072
+generated error fail pass / total     time test name
+[2K[ ]    0    0    0    0 / 1000     0.0s Semaphore sequential[2K[[32;1m✓[0m] 1000    0    0 1000 / 1000     0.0s Semaphore sequential
+================================================================================
+[32;1msuccess[0m (ran 1 tests)

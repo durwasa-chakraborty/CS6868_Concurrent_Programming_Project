@@ -1,0 +1,7 @@
+[1777310724.230009] === balanced 2 domains x 4 ops (Acq/Rel interleaved) ===
+[1777310724.233151] D0: acquire enter
+[1777310724.233216] D1: acquire enter
+[1777310724.233246] D1: acquire exit
+[1777310724.233270] D1: acquire enter
+[1777310724.233297] D0: acquire exit
+[1777310724.233326] D0: acquire enter
