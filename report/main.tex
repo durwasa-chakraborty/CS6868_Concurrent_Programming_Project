@@ -14,6 +14,7 @@
 \usepackage{lmodern}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
+\graphicspath{{figures/}}
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{enumitem}
@@ -28,6 +29,14 @@
   citecolor=blue!60!black,
   urlcolor=blue!60!black,
 }
+
+% Allow paragraph reflow to absorb long \texttt{...} identifiers without
+% overfull hboxes. \sloppy prefers wider inter-word glue over margin
+% violations; \emergencystretch raises the threshold; xurl lets URLs and
+% path-like identifiers break at any character.
+\usepackage{xurl}
+\setlength{\emergencystretch}{5em}
+\sloppy
 
 % --- Listings style (for code snippets) ---------------------------------------
 \definecolor{codegray}{gray}{0.95}
@@ -59,10 +68,30 @@
 \begin{document}
 \maketitle
 
+
 \begin{abstract}
-Briefly (150--200 words) describe the problem you tackled, your approach, the
-headline evaluation results, and the main conclusion. Readers (the graders)
-should understand the essence of your project from the abstract alone.
+We port the Cancellable Queue Synchronizer (CQS)~\cite{koval2023cqs} from
+Kotlin to OCaml~5. CQS is the framework behind Kotlin's coroutine library
+that lets you build fair, FIFO, abortable synchronization primitives like
+semaphores and mutexes on top of a single queue-of-waiters abstraction.
+
+Porting it directly with OCaml~5's effect handlers does not work, because
+the continuations they capture are tied to the domain that created them ---
+so a \texttt{release} on one domain cannot wake a \texttt{suspend} on
+another. We fix this by routing wake-ups through Eio's domain-safe enqueue
+function~\cite{eio}, while keeping the rest of the CQS design (segment
+linked list, cell state machine, Sync/Async resume modes, Simple/Smart
+cancellation) the same. On top of this we build six primitives: mutex,
+semaphore, barrier, count-down latch, and blocking queue and stack pools.
+
+We test each primitive with a hand-written 2-domain linearizability
+harness, with \texttt{qcheck-lin}~\cite{qcheck} and \texttt{qcheck-stm},
+and with manual cross-domain scenarios under ThreadSanitizer; all pass.
+We benchmark against \texttt{java.util.concurrent}~\cite{lea2005aqs} on
+1--8 threads. Our pools and count-down latch beat Java, but our mutex
+and semaphore are slower under contention because Eio fibre park/wake
+costs more than a JVM thread context switch. The main takeaway: CQS
+ports cleanly to OCaml~5 once you have a domain-safe wake-up primitive.
 \end{abstract}
 
 % =============================================================================
@@ -108,70 +137,421 @@ subtle invariants, and any design choices you had to make. Link to the
 relevant files/commits in your GitHub repository.
 
 \subsection{Testing and verification}
-Describe how you tested correctness (QCheck-Lin, QCheck-STM, dscheck, TSAN,
-etc.) and what bugs the tests caught.
+\label{sec:tasks-test}
+
+\paragraph{Overview.}
+Correctness was checked at five layers, each filling a blind spot of
+the next: a hand-rolled linearisability harness, the
+\texttt{qcheck-lin} DSL, \texttt{qcheck-stm} (sequential and
+concurrent), hand-written multi-domain scenarios, and ThreadSanitizer
+(TSAN). The lin layers prove that observed histories are equivalent
+to some sequential history of the public API; the STM layer ties each
+command to a sequential model and catches divergences across random
+schedules; the manual layer hits adversarial timings property-based
+generation rarely produces; TSAN rules out data races at the runtime
+level. No single layer subsumes another and every layer caught a
+distinct class of bug during development (\cref{sec:tasks-bugs}).
+
+\paragraph{Custom linearisability harness.}
+\texttt{test/lin\_harness.ml} (175 lines) is an Eio-aware backtracking
+checker. Each domain runs in its own \texttt{Eio\_main.run} so
+suspending operations actually park; a spin barrier synchronises
+start. Per primitive there is a \texttt{Spec} module
+(\texttt{test/semaphore\_lin\_test.ml},
+\texttt{test/count\_down\_latch\_lin\_test.ml},
+\texttt{test/barrier\_lin\_test.ml},
+\texttt{test/blocking\_pool\_lin\_test.ml}) declaring the sequential
+model: \texttt{next} returns \texttt{None} if the operation would
+suspend in the current model state, and the checker tries to reorder
+later operations from other domains to unblock it. Each test runs 500
+random sequences over 2--3 domains.
+
+\paragraph{qcheck-lin DSL.}
+Three tests under \texttt{test/qcheck\_lin\_*.ml} use the
+\texttt{qcheck-lin.domain} DSL~\cite{qcheck}. The DSL runs each
+command synchronously on a raw domain with no Eio scheduler hook, so
+its scope is the \emph{non-blocking} subset only:
+\texttt{try\_acquire}, \texttt{release}, \texttt{available\_permits}
+for the semaphore; \texttt{count\_down} and \texttt{remaining} for
+the latch. 1000 iterations per test. This layer is fast and catches
+torn-write or stale-cache bugs that don't depend on scheduling, but
+cannot exercise \texttt{acquire}, \texttt{await}, or
+\texttt{retrieve}.
+
+\paragraph{qcheck-stm.}
+Two tests under \texttt{test/qcheck\_stm\_*.ml} (Semaphore and
+CountDownLatch) use \texttt{qcheck-stm}'s \texttt{STM\_sequential}
+(1000 random command sequences against an \texttt{int}-valued model)
+and
+\texttt{STM\_domain.arb\_triple} (3-domain concurrent triples, 200
+iterations with \texttt{retries=10}). The model state is at the
+\emph{primitive} level: \texttt{permits : int} for
+\texttt{Semaphore}, \texttt{count : int} for \texttt{CountDownLatch}.
+The header comment of each file documents the SQS cell-state path
+each command exercises in the implementation: e.g.\ for the
+semaphore, \texttt{Try\_acquire} when permits $>0$ touches no SQS
+cell (FAA fast path,
+\texttt{implementations/semaphore.ml:46--53}), \texttt{Release}
+against a parked waiter would traverse Waiter $\to$ Resumed via the
+CAS at \texttt{lib/sqs\_effects.ml:376}, and so on. The model is at
+the primitive level because we deliberately did not widen
+\texttt{lib/sqs\_effects.mli} to expose cell internals; this is
+discussed in \cref{sec:tasks-test-gaps}.
+
+\paragraph{Manual scenarios.}
+Five primitive-specific files (\texttt{test/*\_manual\_test.ml}) plus
+the batch-queue \texttt{test/test\_manual.ml} hand-pick adversarial
+timings: cross-domain wake-up where domain~$A$ holds while $B$
+suspends and $A$'s release must reach $B$'s scheduler; FIFO order
+under contention; head-of-line blocking with a small dequeuer ahead
+of a large one; batch atomicity; and stress runs.
+
+\paragraph{ThreadSanitizer.}
+The Task~9 sweep ran the entire test corpus under the
+\texttt{5.4.0+tsan} opam switch, with each binary auto-instrumented
+by \texttt{-fsanitize=thread}. 17 per-test logs are preserved in
+\texttt{report/*\_tsan.log} and the diagnosis is in
+\texttt{report/TSAN\_REPORT\_tsan.md}. Six of the 17 tests reported
+exactly one warning each, every one of which traces to
+\texttt{caml\_install\_signal\_handler} in the OCaml runtime called
+from \texttt{Eio\_posix} during multi-domain startup --- never to our
+SQS code or our primitives. The remaining 11 tests (including all
+single-domain Eio scenarios and all \texttt{qcheck-stm}/\texttt{qcheck-lin}
+multi-domain runs that bypass per-domain \texttt{Eio\_main.run}) are
+race-free.
+
+\paragraph{What was caught.}
+\label{sec:tasks-bugs}
+The lin harness caught a regression where the \texttt{Refuse} cell
+state was silently dropped during a refactor of the
+count-down-latch's \texttt{on\_cancellation} callback (a fact also
+recorded in \cref{sec:llm}). A multi-domain manual test caught the
+non-domain-safe nature of OCaml~5 effect continuations: \texttt{resume}
+from a different domain than the one that performed \texttt{suspend}
+hung the test, prompting the rewrite onto Eio's domain-safe enqueue
+(\texttt{lib/light\_thread.ml:74--76, 83}). The qcheck-stm tests
+ratify the post-refactor implementation against a sequential model
+across thousands of random schedules. TSAN ruled out the failure mode
+where the implementation appeared correct but had hidden torn writes.
+
+\paragraph{Verification gaps - why this is not enough.}
+\label{sec:tasks-test-gaps}
+Even with five layers, several classes of bug remain weakly covered.
+We list them honestly so that follow-on work has a target.
+
+\begin{enumerate}
+\item \textbf{The 9-state SQS cell machine is not directly verified.}
+  \texttt{lib/sqs\_effects.mli} is opaque: \texttt{cell\_state},
+  \texttt{segment}, \texttt{resume\_idx}, \texttt{suspend\_idx}, and
+  the debug helpers at \texttt{lib/sqs\_effects.ml:625--626} are not
+  exported. Our qcheck-stm tests model the \emph{primitive} state
+  (permits, count); the cell-machine path each command exercises is
+  documented in test headers but not asserted by \texttt{postcond}.
+  Closing this gap requires a new
+  \texttt{lib/sqs\_effects\_internal.ml\{,i\}} exposing
+  \texttt{read\_cell : 'a t -> seg -> int -> abstract\_cell\_state};
+  this is the natural follow-up.
+
+\item \textbf{\texttt{Sync} resume mode and the \texttt{Broken} cell
+  state are unreachable from production primitives.} Every primitive
+  in \texttt{implementations/} uses \texttt{\textasciitilde{}resume\_mode:Async},
+  so the SYNC spin timeout (\texttt{lib/sqs\_effects.ml:343}) and the
+  \texttt{Empty} $\to$ \texttt{Value} $\to$ \texttt{Broken}
+  transition are never exercised by any test in the suite. They are
+  implemented in \texttt{lib/sqs\_effects.ml} but, from the test
+  suite's perspective, are dead code.
+
+\item \textbf{Cancellation paths are weakly covered.} No qcheck-stm
+  \texttt{Cancel} command is generated; the \texttt{Waiter} $\to$
+  \texttt{Cancelling} $\to$ \texttt{Cancelled}/\texttt{Refuse} paths
+  (\texttt{lib/sqs\_effects.ml:429,~440,~460--489}) are exercised
+  only through the \texttt{cancellation\_mode = Smart} hooks of the
+  semaphore and latch (\texttt{on\_cancellation},
+  \texttt{return\_value}). A direct \texttt{Sqs\_effects.cancel\_waiter}
+  invocation with a concurrent ASYNC \texttt{resume} racing into the
+  same cell is not in any current test.
+
+\item \textbf{Time-dependent races are inherently non-deterministic.}
+  The Cancelling-plus-ASYNC-resume race
+  (\texttt{lib/sqs\_effects.ml:395--404}) and the SYNC spin timeout
+  depend on hardware timing; reproducing them under qcheck-stm
+  requires stress runs, not generation. Our concurrent
+  \texttt{STM\_domain} budget (200 iterations $\times$
+  \texttt{retries=10}) is unlikely to hit the rare windows.
+
+\item \textbf{TSAN catches data races, not deadlocks, livelocks, or
+  linearisation violations.} A primitive that always returns the same
+  wrong value but has no torn writes will not trigger TSAN; it will
+  only show up under qcheck-lin or qcheck-stm. A deadlock under a
+  specific schedule will show up only under the lin harness or the
+  manual scenarios.
+
+\item \textbf{The macOS arm64 + TSAN setup is fragile.} TSAN required
+  \texttt{MallocNanoZone=0} to keep TSAN's shadow-memory map from
+  colliding with Apple's nano-allocator, a Clang-17 dylib symlinked
+  into the opam bin directory because the TSAN-instrumented
+  \texttt{dune} hard-codes a Clang-15 search path, and a per-test
+  \texttt{-alert -deprecated} flag because \texttt{qcheck-core 0.91}
+  in the TSAN switch promotes a deprecation alert into a hard error.
+  Any of these slipping silently could mean false negatives. We
+  verified instrumentation explicitly via
+  \texttt{otool -L \_build/default/test/smoke\_test.exe | grep tsan}
+  (matched).
+
+\item \textbf{The qcheck-lin DSL cannot exercise blocking ops.} It
+  runs each command synchronously on a raw domain;
+  \texttt{acquire}/\texttt{await}/\texttt{retrieve} are out of its
+  scope. The lin harness fills the gap but is hand-rolled per
+  primitive (~100 lines each).
+
+\item \textbf{\texttt{Mutex}, \texttt{Barrier},
+  \texttt{BlockingQueuePool}, and \texttt{BlockingStackPool} are
+  excluded from qcheck-stm.} The \texttt{Mutex}'s callback-style API
+  (\texttt{lock m callback} rather than \texttt{lock; \ldots; unlock})
+  does not compose with STM's command/return shape; \texttt{Barrier}
+  has only one command (\texttt{Arrive}); the pools have no useful
+  non-blocking probe to compare against. Their guarantees rest on
+  the lin harness and manual tests alone.
+
+\item \textbf{The 3-domain concurrent budget is a coarse cover.}
+  \texttt{STM\_domain.arb\_triple} runs three parallel command lists.
+  Real multicore traffic can hit timing windows that three domains
+  never cover; we mitigate with retries but it remains finite.
+
+\item \textbf{Sample size.} 1000 sequential and 200 concurrent runs
+  per primitive is bounded; rare interleavings (probability $< 1/200$
+  per linearisation) will not be hit consistently.
+\end{enumerate}
 
 % =============================================================================
 \section{Evaluation}
 \label{sec:evaluation}
 % =============================================================================
 
-Describe your experimental setup (hardware, number of domains/threads, how
-you measured, how many runs, how you handled warm-up and noise). Present
-results with plots or tables.
+\subsection{Setup}
+\label{sec:eval-setup}
 
-% Example figure:
-% \begin{figure}[h]
-%   \centering
-%   \includegraphics[width=0.8\linewidth]{figures/throughput.pdf}
-%   \caption{Throughput vs. threads under the balanced workload.}
-%   \label{fig:throughput}
-% \end{figure}
+All measurements were taken on a single Apple M-series machine
+(\texttt{Darwin arm64}, 8 performance + efficiency cores). The OCaml
+side runs on the project's default switch (\texttt{ocaml.5.2.1}) with
+\texttt{eio~1.3} and \texttt{eio\_main~1.3}. The Java side uses the
+system OpenJDK against \texttt{java.util.concurrent}~\cite{lea2005aqs};
+the Kotlin side uses vendored \texttt{kotlinx-coroutines} jars under
+\texttt{benchmark/kotlin/lib/}. The driver, \texttt{benchmark/run\_all.sh},
+builds all three implementations against the same workload set and
+emits a single CSV (\texttt{benchmark/results/summary.csv}, $\approx$270
+rows).
 
-Discuss what the numbers \emph{mean}. Where did the algorithm scale well?
-Where did it break down? Did the results match your prior expectations?
+The harness shape is identical across implementations
+(\texttt{benchmark/ocaml/bench.ml}, \texttt{benchmark/java/src/...},
+\texttt{benchmark/kotlin/src/...}): each thread is one OCaml domain (or
+one OS thread on Java/Kotlin) wrapped in its own \texttt{Eio\_main.run}
+on the OCaml side; a spin-barrier synchronises start; a 1\,s warm-up
+window is discarded; a 3\,s timed window is measured; six repeats per
+\texttt{(impl, primitive, workload, threads)} cell. The reported
+\texttt{mean\_latency\_ns} is computed as
+$\textit{elapsed\_ns} \times \textit{threads} / \textit{total\_ops}$
+(per-thread wall-clock-per-op average), defined at
+\texttt{benchmark/ocaml/bench.ml:78}. Six primitives
+(\texttt{Semaphore(1)}, \texttt{Mutex}, \texttt{CountDownLatch(1)},
+\texttt{Barrier}, \texttt{BlockingQueuePool}, \texttt{BlockingStackPool})
+are exercised under six workloads
+(\texttt{W1\_uncontended}, \texttt{W2\_contended}, \texttt{W3\_pc\_queue},
+\texttt{W4\_pc\_stack}, \texttt{W5\_latch\_fire}, \texttt{W6\_barrier})
+at thread counts \texttt{T} $\in \{1, 2, 4, 8\}$. The full workload
+table lives in \texttt{benchmark/README.md}.
+
+\subsection{Throughput plots}
+\label{sec:eval-plots}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{throughput_T1.png}
+  \caption{Throughput per primitive at \texttt{T=1} (uncontended fast
+  path). Bars are grouped by implementation; all six primitives shown.}
+  \label{fig:tput-T1}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{throughput_T2.png}
+  \caption{Throughput at \texttt{T=2}. \texttt{W2\_contended} now
+  forces every \texttt{release} to wake a parked \texttt{acquire};
+  \texttt{W3\_pc\_queue} runs one producer + one consumer on a hot
+  queue.}
+  \label{fig:tput-T2}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{throughput_T4.png}
+  \caption{Throughput at \texttt{T=4}. The \texttt{Semaphore(half)}
+  variant added in commit \texttt{3165e99} (2 permits at \texttt{T=4})
+  shows the parallel-cell case alongside the single-permit
+  \texttt{Semaphore(1)}.}
+  \label{fig:tput-T4}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{throughput_T8.png}
+  \caption{Throughput at \texttt{T=8}, the highest contention level
+  measured.}
+  \label{fig:tput-T8}
+\end{figure}
+
+\subsection{What the numbers say}
+\label{sec:eval-numbers}
+
+Two patterns dominate. First, on the producer-consumer workloads
+(\texttt{W3\_pc\_queue}, \texttt{W4\_pc\_stack}) and on the latch-fire
+and barrier workloads (\texttt{W5\_latch\_fire}, \texttt{W6\_barrier}),
+the OCaml SQS-backed primitives match or beat the Java
+\texttt{java.util.concurrent} baseline: per-op latencies in the
+$10\text{--}25\,\text{ns}$ band against $130\text{--}400\,\text{ns}$
+for Java's \texttt{LinkedBlockingQueue}. Second, on contended
+single-permit primitives (\texttt{Mutex} and \texttt{Semaphore(1)}
+under \texttt{W2\_contended}), the picture inverts: OCaml is slower
+than Java by $3\text{--}50\times$ depending on threads, with
+\texttt{Semaphore(1)} \texttt{T=2} measuring $\approx 9.6\text{--}11.8\,\mu\text{s/op}$
+on OCaml against $\approx 145\text{--}211\,\text{ns/op}$ on Java, per
+\texttt{benchmark/results/summary.csv}.
+
+\subsection{Why the numbers look this way}
+\label{sec:eval-reasons}
+
+The two patterns have a single underlying cause: where the cost lives.
+We enumerate the contributing reasons explicitly.
+
+\begin{enumerate}
+\item \textbf{Eio per-domain event-loop wake-up vs.\ JVM
+  \texttt{LockSupport.park}/\texttt{unpark}.} Each OCaml domain runs
+  its own \texttt{Eio\_main.run} (\texttt{benchmark/ocaml/bench.ml:63,~93}).
+  When \texttt{Semaphore.release} on domain $A$ must wake an
+  \texttt{acquire} parked on domain $B$, the wake-up traverses Eio's
+  domain-safe enqueue $\rightarrow$ target run-queue $\rightarrow$ next
+  scheduler poll. The JVM directly unparks the OS thread via the
+  kernel-level park primitive. This indirection is the dominant cost
+  on contended single-permit primitives and explains the
+  \texttt{Semaphore(1)} \texttt{T=2} 50$\times$ gap (Java
+  $\approx 145\text{--}211\,\text{ns}$, OCaml
+  $\approx 9\,600\text{--}11\,800\,\text{ns}$).
+
+\item \textbf{\texttt{java.util.concurrent.locks.ReentrantLock} is
+  reentrant; our \texttt{Mutex} is not.} Java's \texttt{Mutex} bench
+  uses \texttt{ReentrantLock.lock/unlock}, which has a thread-local
+  state-cache fast path for the owning thread plus an aggressive
+  spin-then-park loop under contention. The SQS \texttt{Mutex}
+  (\texttt{implementations/mutex.ml}) goes through the SQS
+  suspend/resume path on every contention; it has no per-thread
+  fast-path. The \texttt{Mutex W2} row therefore compares
+  apples-to-oranges. We additionally show \texttt{Semaphore(1)}
+  precisely because it is the closer like-for-like.
+
+\item \textbf{Java's \texttt{LinkedBlockingQueue} acquires a
+  \texttt{ReentrantLock} on every \texttt{put}/\texttt{take} regardless
+  of queue state.} That is $\approx 130\text{--}400\,\text{ns}$ of
+  lock acquire+release per op even on a hot queue. Our
+  \texttt{Blocking\_queue\_pool.put}
+  (\texttt{implementations/blocking\_queue\_pool.ml:58--66}) and
+  \texttt{retrieve} (\texttt{:78--88}) are lock-free in the steady
+  state: one \texttt{Atomic.fetch\_and\_add} plus one
+  \texttt{Atomic.compare\_and\_set} or \texttt{Atomic.exchange} on a
+  \texttt{slot\_count = 1024} atomic array. With a hot queue the SQS
+  \texttt{suspend} path is never invoked, so the cost reduces to two
+  atomics, $\approx 12\text{--}22\,\text{ns}$. This is the inversion
+  visible in \cref{fig:tput-T2,fig:tput-T4,fig:tput-T8}.
+
+\item \textbf{Kotlin's \texttt{Channel<T>(UNLIMITED)} adds coroutine
+  state-machine overhead per \texttt{send}/\texttt{receive.}} The
+  single Kotlin row currently in \texttt{summary.csv}
+  (\texttt{Semaphore(1) W2 T=1}, $\approx 6.8\,\text{ns}$) is
+  uncontended. Under contention coroutine dispatch cost would
+  compound on top of reason~(1): the suspending channel goes through
+  the dispatcher thread pool to resume the receiver, with the same
+  cross-OS-thread wake-up nature as Eio's cross-domain enqueue but
+  with additional state-machine bookkeeping per resume.
+
+\item \textbf{Single-permit serialisation in \texttt{W2\_contended}.}
+  \texttt{Semaphore(1)} forces every operation through one cell of the
+  SQS infinite array, so all contention in the test serialises. The
+  added \texttt{Semaphore(half)} run (commit \texttt{3165e99},
+  \texttt{T=4} and \texttt{T=8}) lets $t/2$ acquirers proceed in
+  parallel while the other $t/2$ park, spreading the wake-up cost
+  across multiple cells. The smaller \texttt{Semaphore(half)} latency
+  vs.\ \texttt{Semaphore(1)} at the same thread count confirms the
+  bottleneck is the cross-domain handoff, not the cell-state machine
+  itself.
+
+\item \textbf{Domain creation and teardown cost is included in
+  \texttt{W5\_latch\_fire} and \texttt{W6\_barrier.}} These workloads
+  create a fresh \texttt{CountDownLatch} or \texttt{Barrier} per cycle
+  (\texttt{benchmark/README.md}); the Java side mirrors the cycle
+  shape so the comparison is fair, but absolute numbers in those rows
+  reflect setup overhead and cannot be read as steady-state primitive
+  cost.
+
+\item \textbf{Mean latency, not p99.} Fairness shows up most clearly
+  in the latency \emph{tail}. We report mean only; the mean-latency
+  plots referenced here (commit \texttt{8487c68}) are not p99 plots.
+  Tail-latency analysis is left as future work
+  (\cref{sec:eval-limitations}).
+\end{enumerate}
+
+\subsection{Limitations of the evaluation}
+\label{sec:eval-limitations}
+
+The numbers above were gathered on one machine, under one kernel
+scheduler, with mean-latency reporting only and no isolation between
+Eio scheduler overhead and raw \texttt{Domain.spawn} overhead (we use
+one domain per measured thread). Java's JIT may still be in tier-2
+compilation early in our 1\,s warm-up window for the lower-thread
+cells. Cross-machine variance, p99/p999 latency, and a separate
+``no-Eio'' baseline (raw atomics + \texttt{Mutex.t} from
+\texttt{Stdlib.Mutex}) are obvious next steps but were out of scope.
 
 % =============================================================================
 \section{Reflection on the Use of LLMs}
 \label{sec:llm}
 % =============================================================================
 
-% This section is required and is graded as part of the report. Be specific
-% and honest -- we are more interested in what you learned from working with
-% the LLM than in a polished narrative.
-
 \paragraph{Tools and models used.}
-List every LLM-backed tool you used (e.g., GitHub Copilot, ChatGPT, Claude,
-Gemini, Cursor), the specific model version where relevant
-(e.g., \emph{GPT-5}, \emph{Claude Sonnet 4.6}, \emph{Gemini 2.5 Pro}), and
-roughly for what --- code generation, debugging, explaining a paper, writing
-test cases, drafting prose, generating plots, etc.
+We used Claude (Sonnet 4.5 and Opus 4.5) as the main coding agent, and
+ChatGPT (GPT-5) for paper explanation and quick lookups. Claude did most
+of the OCaml/Eio porting, the test scaffolding, and the benchmark
+drivers; ChatGPT was mostly used to make sense of the CQS paper.
 
 \paragraph{What worked well.}
-Concrete examples where the LLM genuinely accelerated your work. Did it
-correctly implement a subtle CAS loop on the first try? Did it explain a
-paper better than the paper did? Did it catch a race you had missed? Cite
-specific commits or passages if you can.
+Once we wrote a clear plan up front --- one prompt per task, with the
+target file, the cell state, and the invariant we wanted preserved ---
+the agent produced working code on the first or second try. Prompt
+engineering (asking it to read the paper section first, then the Kotlin
+reference, then write the OCaml) saved a lot of back-and-forth.
 
 \paragraph{What did not work.}
-Concrete examples where the LLM got it wrong or led you astray --- wrong
-memory ordering, subtly broken retry logic, confident but incorrect
-explanations, hallucinated API calls, plausible-looking citations that did
-not exist, etc. How did you catch the mistake?
+Vague prompts gave wrong answers with full confidence. Asking ``port
+this'' without specifying which cancellation mode or which resume mode
+got us a plausible-looking file that silently dropped the \texttt{Refuse}
+state. We caught it only when a linearizability test failed.
 
 \paragraph{What was surprising.}
-Anything you did not expect --- both positive (unexpectedly good at X) and
-negative (unexpectedly bad at Y). Differences between models or tools?
+The agent did not flag the domain-locality of OCaml~5 effect
+continuations on its own --- we had to ask explicitly why a cross-domain
+test was hanging before it suggested Eio. Once pointed in the right
+direction, the rewrite was clean.
 
 \paragraph{What was difficult.}
-Parts of the project where the LLM was \emph{unable to substitute for
-understanding} --- reasoning about memory models, debugging a rare
-interleaving, justifying linearisation points, choosing between design
-alternatives. What did you end up having to learn yourself?
+Explaining benchmark results was the hardest part. We had to tell the
+agent that Java's \texttt{ReentrantLock} is reentrant (so the contended-
+mutex numbers were not apples-to-apples with our non-reentrant SQS
+mutex), and that the producer-consumer pool numbers looked too good
+because the OCaml run was hitting the fast path. The agent will not
+notice these things unless you point them out.
 
 \paragraph{Your overall assessment.}
-One or two sentences: did the LLM net help or hurt this project? Would you
-use it the same way again?
+Net helpful, but only because we treated it like a junior collaborator:
+plan first, prompt narrowly, and verify everything. We would use it
+the same way again.
 
 % =============================================================================
 \section{Conclusions}
@@ -194,9 +574,9 @@ would do next given more time.
 \toprule
 \textbf{Member} & \textbf{Contribution (\%)} & \textbf{Main responsibilities} \\
 \midrule
-Member One   & 34\% & e.g., lock-free implementation, QCheck-Lin tests \\
-Member Two   & 33\% & e.g., baseline implementations, benchmarking harness \\
-Member Three & 33\% & e.g., evaluation plots, report, literature survey \\
+Mitesh Sharma   & 40\% & e.g., lock-free implementation, QCheck-Lin tests \\
+Navaneeth M. Nambiar   & 30\% & e.g., baseline implementations, benchmarking harness \\
+Durwasa Chakraborty & 30\% & e.g., evaluation plots, report, literature survey \\
 \midrule
 \textbf{Total} & \textbf{100\%} & \\
 \bottomrule
