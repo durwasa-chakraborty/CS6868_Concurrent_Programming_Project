@@ -1,9 +1,0 @@
-\begin{thebibliography}{1}
-
-\bibitem{example}
-Firstname Lastname and Other Author.
-\newblock An example paper.
-\newblock {\em Example Journal}, 1(1):1--10, 2024.
-\newblock \href {https://doi.org/10.0000/example} {\path{doi:10.0000/example}}.
-
-\end{thebibliography}
