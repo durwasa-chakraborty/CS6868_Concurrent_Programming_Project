@@ -59,9 +59,7 @@ and `kotlinx.coroutines`.
 │
 ├── Makefile                      Build/test/bench targets (see `make help`)
 ├── dune-project                  Project + opam metadata
-├── CLAUDE.md                     Task list
 ├── SQS.md                        SQS design notes
-├── CqsLincheck_Explained.md      Notes on the original Kotlin Lincheck suite
 └── README.md                     (this file)
 ```
 
