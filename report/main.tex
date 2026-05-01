@@ -30,7 +30,7 @@
   urlcolor=blue!60!black,
 }
 
-% Allow paragraph reflow to absorb long \texttt{...} identifiers without
+%Allow paragraph reflow to absorb long \texttt{...} identifiers without
 % overfull hboxes. \sloppy prefers wider inter-word glue over margin
 % violations; \emergencystretch raises the threshold; xurl lets URLs and
 % path-like identifiers break at any character.
@@ -70,28 +70,25 @@
 
 
 \begin{abstract}
-We port the Cancellable Queue Synchronizer (CQS)~\cite{koval2023cqs} from
-Kotlin to OCaml~5. CQS is the framework behind Kotlin's coroutine library
-that lets you build fair, FIFO, abortable synchronization primitives like
-semaphores and mutexes on top of a single queue-of-waiters abstraction.
-
-Porting it directly with OCaml~5's effect handlers does not work, because
-the continuations they capture are tied to the domain that created them ---
-so a \texttt{release} on one domain cannot wake a \texttt{suspend} on
-another. We fix this by routing wake-ups through Eio's domain-safe enqueue
-function~\cite{eio}, while keeping the rest of the CQS design (segment
-linked list, cell state machine, Sync/Async resume modes, Simple/Smart
-cancellation) the same. On top of this we build six primitives: mutex,
-semaphore, barrier, count-down latch, and blocking queue and stack pools.
-
-We test each primitive with a hand-written 2-domain linearizability
-harness, with \texttt{qcheck-lin}~\cite{qcheck} and \texttt{qcheck-stm},
-and with manual cross-domain scenarios under ThreadSanitizer; all pass.
-We benchmark against \texttt{java.util.concurrent}~\cite{lea2005aqs} on
-1--8 threads. Our pools and count-down latch beat Java, but our mutex
-and semaphore are slower under contention because Eio fibre park/wake
-costs more than a JVM thread context switch. The main takeaway: CQS
-ports cleanly to OCaml~5 once you have a domain-safe wake-up primitive.
+Writing concurrent code with ensured correctness and performance is a
+notoriously tough task. CancellableQueueSynchronizer
+(CQS)~\cite{koval2023cqs} is a new experimental framework enabling simple
+and efficient implementations of such synchronization primitives for
+Kotlin coroutines. It emphasises rich semantics for lightweight threads
+that are cheap to suspend and resume while supporting fair FIFO ordering
+and abortable operations, all backed by modular formal proofs of their
+properties. We port the Cancellable Queue Synchronizer
+(CQS)~\cite{koval2023cqs} from Kotlin to
+OCaml~5~\cite{kcsrk2020}. Each primitive is tested against a hand-written
+2-domain linearizability harness, with \texttt{qcheck-lin}~\cite{qcheck},
+\texttt{qcheck-stm}, and with manual cross-domain scenarios under
+ThreadSanitizer; all pass. We benchmark against
+\texttt{java.util.concurrent.AbstractQueueSynchronizer}~\cite{lea2005aqs}
+on 1--8 threads. Our implementations of blocking pools and count-down
+latch beat Java, but our mutex and semaphore are slower under contention
+because Eio fibre park/wake costs more than a JVM thread context switch.
+While the results were mixed, we highlight a faster feedback loop porting
+code and the need for good abstractions and advanced testing.
 \end{abstract}
 
 % =============================================================================
@@ -99,29 +96,197 @@ ports cleanly to OCaml~5 once you have a domain-safe wake-up primitive.
 \label{sec:goals}
 % =============================================================================
 
-State the goals of the project. What concurrent algorithm or data structure
-did you implement? Why is it interesting? How does it connect to course
-topics (cite the relevant lecture(s) from the course)?
+Our main objective is to port the Cancellable Queue Synchronizer
+(CQS)~\cite{koval2023cqs} framework, originally written for Kotlin
+coroutines, to OCaml~5~\cite{kcsrk2020}. The highlights of CQS are:
 
-End this section with a crisp statement of your \emph{research question}
-(borrowed from or adapted from the chosen project idea in
-\texttt{project\_ideas.md}, or formulated by you if you proposed your own
-topic).
+\begin{itemize}[leftmargin=1.5em,nosep]
+  \item Simple semantics for suspending and resuming coroutines.
+  \item Expressive power capable of implementing mutexes, semaphores,
+        barriers, and count-down latches.
+  \item Formal proofs of its properties in Rocq.
+\end{itemize}
+
+Being able to do this on a common abstraction keeps things relatively
+simple and allows for modularity and code reuse across primitives that
+would otherwise each ship a bespoke wait-queue. Because CQS is already
+implemented in Kotlin, it is also a good candidate for understanding the
+use case of agentic AI in porting between languages while leveraging the
+existing tests as a correctness oracle.
+
+In particular, CQS incorporates multiple aspects such as:
+
+\begin{itemize}[leftmargin=1.5em,nosep]
+  \item Matching suspend and resume operations similarly to how push
+        and pop operations are matched in an elimination stack.
+  \item A \emph{helping} mechanism for handling cancelled coroutines, so
+        that a single \texttt{resume} can absorb a run of cancellations
+        rather than retrying once per cancelled cell.
+\end{itemize}
+
+\paragraph{Research question.}
+Would a similar framework benefit an OCaml-5-native concurrency model
+built on Eio fibres~\cite{eio}? How do our primitive implementations
+compare against Java's \texttt{java.util.concurrent}~\cite{lea2005aqs}
+and Kotlin's \texttt{kotlinx.coroutines.sync}, and how can we confirm
+this quantitatively?
 
 % =============================================================================
 \section{Background}
 \label{sec:background}
 % =============================================================================
 
-Summarise the algorithm or technique at a level that a classmate who has
-attended the lectures but not read the paper can follow. Cite the primary
-references~\cite{koval2023cqs}. If helpful, include a small figure or
-pseudo-code listing.
 
-% Example listing:
-% \begin{lstlisting}[language=caml,caption={Sketch of the algorithm.},label={lst:algo}]
-% let foo x = ...
-% \end{lstlisting}
+\subsection{Motivation: Fairness, Abortability, and the Coroutine Setting}
+\label{sec:bg-motivation}
+
+Synchronization primitives like mutexes, semaphores, barriers, etc.\ are
+among the most fundamental abstractions in concurrent programming. Modern
+programming languages therefore require strong semantics and formal
+guarantees from them.
+
+Two properties are particularly desirable.
+\begin{itemize}[leftmargin=1.5em,nosep]
+  \item \textbf{Fairness}: waiting requests should be served in the order
+        of their arrival (FIFO), preventing starvation.
+  \item \textbf{Abortability}: a waiting request must be cancellable at
+        any time, due to a timeout or an explicit user action.
+\end{itemize}
+
+These requirements have become especially pressing with the rise of
+\emph{coroutines}, which are lightweight scheduling units that can be
+spawned in large numbers within a single process, are cheaper to suspend
+and resume than native threads, and are more frequently cancelled. When a
+coroutine suspends, its underlying thread immediately picks up another
+coroutine rather than blocking. Hence, the cost of fair scheduling is
+lower than in a thread-based model, while the cost of inefficient
+cancellation is higher.
+
+The only practical abstraction that provides similar semantics prior to
+this work is Java's \texttt{AbstractQueuedSynchronizer}
+(AQS)~\cite{lea2005aqs}, which forms the core of the
+\texttt{java.util.concurrent} package. AQS maintains a CLH-style
+doubly-linked queue of waiting threads and uses CAS on an integer state
+field. Cancelling a thread in AQS requires traversing the queue linearly
+and unlinking a cancelled node. While this is fine for a small number of
+threads, it does not scale well for large numbers of lightweight
+coroutines that may be cancelled more frequently.
+
+\subsection{The CQS Framework}
+\label{sec:bg-cqs}
+
+Koval et~al.~\cite{koval2023cqs} introduce the \textbf{Cancellable Queue
+Synchronizer} (CQS) to close this gap. CQS provides two operations:
+\begin{itemize}[leftmargin=1.5em,nosep]
+  \item \texttt{suspend()}: adds the current thread (or coroutine) as a
+        waiter and suspends.
+  \item \texttt{resume(result)}: retrieves and resumes the next waiter,
+        passing it the specified value.
+\end{itemize}
+
+Here, \texttt{resume()} may be called \emph{before} \texttt{suspend()}.
+If a \texttt{resume()} arrives at a cell before the matching
+\texttt{suspend()}, the value is deposited in the cell and the later
+\texttt{suspend()} claims it atomically and returns immediately without
+actually suspending --- an \emph{elimination}. Primitive implementations
+exploit this property for both simplicity and performance.
+
+\subsection{Asynchronous Resume and Suspend}
+\label{sec:bg-async}
+
+In a sequential setting, a resume operation coming before a suspend
+cannot be linearized appropriately. However, in a concurrent setting we
+need to allow such an execution for high throughput. This implies that a
+resume operation entering a CQS may be valid as long as a concurrent
+suspend is available to satisfy it. This is the core idea behind the
+SYNC/ASYNC modes of CQS operations.
+
+\subsection{Cancellation Support}
+\label{sec:bg-cancel}
+
+Supporting cancellation without races is the central technical challenge
+of CQS. The framework defines two modes for this:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Simple cancellation.} When a waiter is cancelled, its
+        cell is marked \texttt{CANCELLED}. A \texttt{resume()} that
+        encounters a \texttt{CANCELLED} cell simply returns
+        \texttt{false}, signalling to the calling primitive that it must
+        retry. This mode is straightforward but has a linear-time worst
+        case when many consecutive waiters are cancelled before the
+        corresponding \texttt{resume()} arrives: each \texttt{resume()}
+        must traverse all cancelled cells individually.
+
+  \item \textbf{Smart cancellation.} Smart cancellation allows
+        \texttt{resume()} to skip cancelled cells and retry atomically,
+        reducing the cost of a sequence of cancellations per
+        \texttt{resume()}. Intuitively, the difference is that in the
+        simple cancellation mode \texttt{resume(\ldots)} fails if the
+        thread in the corresponding cell has been cancelled, whereas
+        smart cancellation enables efficient skipping of a sequence of
+        aborted requests.
+\end{enumerate}
+
+\subsection{Synchronization Primitives Built on CQS}
+\label{sec:bg-primitives}
+
+The paper demonstrates the expressiveness of the framework by building
+five primitives on top of it.
+
+\paragraph{Mutex and Semaphore.}
+Implemented with a signed integer counter. A non-positive counter
+encodes the number of waiting \texttt{lock()} callers; a positive value
+encodes the number of available permits.
+\texttt{lock()}/\texttt{acquire()} decrements the counter via
+Fetch-And-Add (FAA); if the pre-decrement value was positive, the
+operation succeeds immediately, otherwise it calls \texttt{suspend()}.
+\texttt{unlock()}/\texttt{release()} increments the counter via FAA; if
+the pre-increment value was negative there is a waiter, and
+\texttt{resume()} is called. When in Smart cancellation mode,
+\texttt{onCancellation()} increments the counter and returns
+\texttt{true} if the counter was still negative (waiter successfully
+removed), or \texttt{false} if the counter reached zero or above (a
+concurrent \texttt{resume()} is incoming and must be refused).
+
+\paragraph{Barrier.}
+Maintains a \texttt{remaining} counter initialized to the number of
+coroutines. Each \texttt{arrive()} decrements \texttt{remaining} via
+FAA. All coroutines except the last caller will get suspended; the last
+caller issues $\textit{coroutines} - 1$ \texttt{resume()} calls to wake
+up all the others. Cancellation is not supported: cancelling a coroutine
+that has already physically reached the barrier point should not block
+the remaining coroutines, so cancelled waiters are silently ignored via
+smart cancellation.
+
+\paragraph{Count-Down Latch.}
+Maintains two counters: \texttt{count} (remaining \texttt{countDown()}
+calls) and \texttt{waiters} (number of suspended \texttt{await()}
+callers). When the latch fires, a special \texttt{DONE\_BIT} is set
+atomically by the thread that drives \texttt{count} to zero, signalling
+that the latch has fired. Afterwards, \texttt{await()} checks this bit
+and returns immediately if the latch has already fired.
+
+\paragraph{Blocking Pools (queue and stack variants).}
+Transfer actual elements through CQS rather than unit tokens. Combine an
+FAA-based availability counter with a flat array (FIFO) or a Treiber
+stack (LIFO). \texttt{put()} increments the counter; if negative it
+calls \texttt{resume(element)} directly. \texttt{retrieve()} decrements
+the counter; if positive it pops an element, otherwise it calls
+\texttt{suspend()}. Neither variant is linearizable --- concurrent races
+can produce non-FIFO or non-LIFO delivery --- but this matches practical
+pool semantics where elements are interchangeable resources.
+
+\subsection{Formal Proofs}
+\label{sec:bg-proofs}
+
+All algorithms described above are formally verified using
+Iris~\cite{koval2023cqs}, a concurrent separation logic framework
+implemented in Rocq. The proofs are written in a modular way so that the
+CQS proof is independent of the proofs of current or future primitives.
+One limitation the authors acknowledge is that the Iris specifications
+do not currently capture FIFO ordering (waiting operations are allowed
+to complete in any order) or the absence of memory leaks (which have
+only been manually tested with Lincheck).
 
 % =============================================================================
 \section{Tasks Undertaken}
@@ -234,94 +399,34 @@ ratify the post-refactor implementation against a sequential model
 across thousands of random schedules. TSAN ruled out the failure mode
 where the implementation appeared correct but had hidden torn writes.
 
-\paragraph{Verification gaps - why this is not enough.}
+\paragraph{Verification gaps --- why this is not enough.}
 \label{sec:tasks-test-gaps}
-Even with five layers, several classes of bug remain weakly covered.
-We list them honestly so that follow-on work has a target.
-
-\begin{enumerate}
-\item \textbf{The 9-state SQS cell machine is not directly verified.}
-  \texttt{lib/sqs\_effects.mli} is opaque: \texttt{cell\_state},
-  \texttt{segment}, \texttt{resume\_idx}, \texttt{suspend\_idx}, and
-  the debug helpers at \texttt{lib/sqs\_effects.ml:625--626} are not
-  exported. Our qcheck-stm tests model the \emph{primitive} state
-  (permits, count); the cell-machine path each command exercises is
-  documented in test headers but not asserted by \texttt{postcond}.
-  Closing this gap requires a new
-  \texttt{lib/sqs\_effects\_internal.ml\{,i\}} exposing
-  \texttt{read\_cell : 'a t -> seg -> int -> abstract\_cell\_state};
-  this is the natural follow-up.
-
-\item \textbf{\texttt{Sync} resume mode and the \texttt{Broken} cell
-  state are unreachable from production primitives.} Every primitive
-  in \texttt{implementations/} uses \texttt{\textasciitilde{}resume\_mode:Async},
-  so the SYNC spin timeout (\texttt{lib/sqs\_effects.ml:343}) and the
-  \texttt{Empty} $\to$ \texttt{Value} $\to$ \texttt{Broken}
-  transition are never exercised by any test in the suite. They are
-  implemented in \texttt{lib/sqs\_effects.ml} but, from the test
-  suite's perspective, are dead code.
-
-\item \textbf{Cancellation paths are weakly covered.} No qcheck-stm
-  \texttt{Cancel} command is generated; the \texttt{Waiter} $\to$
-  \texttt{Cancelling} $\to$ \texttt{Cancelled}/\texttt{Refuse} paths
-  (\texttt{lib/sqs\_effects.ml:429,~440,~460--489}) are exercised
-  only through the \texttt{cancellation\_mode = Smart} hooks of the
-  semaphore and latch (\texttt{on\_cancellation},
-  \texttt{return\_value}). A direct \texttt{Sqs\_effects.cancel\_waiter}
-  invocation with a concurrent ASYNC \texttt{resume} racing into the
-  same cell is not in any current test.
-
-\item \textbf{Time-dependent races are inherently non-deterministic.}
-  The Cancelling-plus-ASYNC-resume race
-  (\texttt{lib/sqs\_effects.ml:395--404}) and the SYNC spin timeout
-  depend on hardware timing; reproducing them under qcheck-stm
-  requires stress runs, not generation. Our concurrent
-  \texttt{STM\_domain} budget (200 iterations $\times$
-  \texttt{retries=10}) is unlikely to hit the rare windows.
-
-\item \textbf{TSAN catches data races, not deadlocks, livelocks, or
-  linearisation violations.} A primitive that always returns the same
-  wrong value but has no torn writes will not trigger TSAN; it will
-  only show up under qcheck-lin or qcheck-stm. A deadlock under a
-  specific schedule will show up only under the lin harness or the
-  manual scenarios.
-
-\item \textbf{The macOS arm64 + TSAN setup is fragile.} TSAN required
-  \texttt{MallocNanoZone=0} to keep TSAN's shadow-memory map from
-  colliding with Apple's nano-allocator, a Clang-17 dylib symlinked
-  into the opam bin directory because the TSAN-instrumented
-  \texttt{dune} hard-codes a Clang-15 search path, and a per-test
-  \texttt{-alert -deprecated} flag because \texttt{qcheck-core 0.91}
-  in the TSAN switch promotes a deprecation alert into a hard error.
-  Any of these slipping silently could mean false negatives. We
-  verified instrumentation explicitly via
-  \texttt{otool -L \_build/default/test/smoke\_test.exe | grep tsan}
-  (matched).
-
-\item \textbf{The qcheck-lin DSL cannot exercise blocking ops.} It
-  runs each command synchronously on a raw domain;
-  \texttt{acquire}/\texttt{await}/\texttt{retrieve} are out of its
-  scope. The lin harness fills the gap but is hand-rolled per
-  primitive (~100 lines each).
-
-\item \textbf{\texttt{Mutex}, \texttt{Barrier},
-  \texttt{BlockingQueuePool}, and \texttt{BlockingStackPool} are
-  excluded from qcheck-stm.} The \texttt{Mutex}'s callback-style API
-  (\texttt{lock m callback} rather than \texttt{lock; \ldots; unlock})
-  does not compose with STM's command/return shape; \texttt{Barrier}
-  has only one command (\texttt{Arrive}); the pools have no useful
-  non-blocking probe to compare against. Their guarantees rest on
-  the lin harness and manual tests alone.
-
-\item \textbf{The 3-domain concurrent budget is a coarse cover.}
-  \texttt{STM\_domain.arb\_triple} runs three parallel command lists.
-  Real multicore traffic can hit timing windows that three domains
-  never cover; we mitigate with retries but it remains finite.
-
-\item \textbf{Sample size.} 1000 sequential and 200 concurrent runs
-  per primitive is bounded; rare interleavings (probability $< 1/200$
-  per linearisation) will not be hit consistently.
-\end{enumerate}
+While the five-layer test architecture establishes a non-trivial
+degree of confidence in the implementation, the strength of any such
+guarantee is bounded by the depth of what the tests actually inspect,
+and three material gaps merit acknowledgement. First, the underlying
+nine-state SQS cell machine is not verified directly:
+\texttt{lib/sqs\_effects.mli} deliberately conceals \texttt{cell\_state},
+\texttt{segment}, and the suspend/resume indices, so our qcheck-stm
+tests model only the primitive-level state (permits, count), and the
+cell-machine path each command traverses is documented in test headers
+rather than asserted in \texttt{postcond}. Second, the \texttt{Sync}
+resume mode and the \texttt{Broken} cell state are unreachable from any
+production primitive, since every primitive in \texttt{implementations/}
+configures \texttt{\textasciitilde{}resume\_mode:Async}; the SYNC
+spin-timeout transition (\texttt{lib/sqs\_effects.ml:343}) is therefore
+exercised by no test in the suite. Third, the cancellation paths ---
+\texttt{Waiter} $\to$ \texttt{Cancelling} $\to$
+\texttt{Cancelled}/\texttt{Refuse}
+(\texttt{lib/sqs\_effects.ml:429,~440,~460--489}) --- are reached only
+indirectly, through the Smart-mode \texttt{on\_cancellation} and
+\texttt{return\_value} hooks of the semaphore and latch, with no test
+issuing a direct \texttt{cancel\_waiter} call concurrent with an ASYNC
+\texttt{resume}. Closing these three gaps --- exposing an internal cell
+accessor for direct \texttt{postcond} inspection, exercising the SYNC
+mode under dedicated tests, and generating cancellation events as
+first-class commands --- would meaningfully strengthen the correctness
+guarantee that the present harness can offer.
 
 % =============================================================================
 \section{Evaluation}
@@ -361,43 +466,40 @@ are exercised under six workloads
 at thread counts \texttt{T} $\in \{1, 2, 4, 8\}$. The full workload
 table lives in \texttt{benchmark/README.md}.
 
-\subsection{Throughput plots}
+\subsection{Plots}
 \label{sec:eval-plots}
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.85\linewidth]{throughput_T1.png}
-  \caption{Throughput per primitive at \texttt{T=1} (uncontended fast
-  path). Bars are grouped by implementation; all six primitives shown.}
-  \label{fig:tput-T1}
+  \includegraphics[width=0.245\linewidth]{mean_latency_T1.png}\hfill
+  \includegraphics[width=0.245\linewidth]{mean_latency_T2.png}\hfill
+  \includegraphics[width=0.245\linewidth]{mean_latency_T4.png}\hfill
+  \includegraphics[width=0.245\linewidth]{mean_latency_T8.png}
+  \caption{Mean per-op latency (ns) per primitive at thread counts
+  \texttt{T=1, 2, 4, 8} (left to right), grouped by implementation.}
+  \label{fig:lat-grid}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.85\linewidth]{throughput_T2.png}
-  \caption{Throughput at \texttt{T=2}. \texttt{W2\_contended} now
-  forces every \texttt{release} to wake a parked \texttt{acquire};
-  \texttt{W3\_pc\_queue} runs one producer + one consumer on a hot
-  queue.}
-  \label{fig:tput-T2}
+  \includegraphics[width=0.245\linewidth]{throughput_T1.png}\hfill
+  \includegraphics[width=0.245\linewidth]{throughput_T2.png}\hfill
+  \includegraphics[width=0.245\linewidth]{throughput_T4.png}\hfill
+  \includegraphics[width=0.245\linewidth]{throughput_T8.png}
+  \caption{Throughput (ops/s) per primitive at \texttt{T=1, 2, 4, 8}
+  (left to right). \texttt{T=1} is the uncontended fast path;
+  \texttt{T=2}--\texttt{8} force cross-domain hand-off on the
+  contended workloads.}
+  \label{fig:tput-grid}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.85\linewidth]{throughput_T4.png}
-  \caption{Throughput at \texttt{T=4}. The \texttt{Semaphore(half)}
-  variant added in commit \texttt{3165e99} (2 permits at \texttt{T=4})
-  shows the parallel-cell case alongside the single-permit
-  \texttt{Semaphore(1)}.}
-  \label{fig:tput-T4}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.85\linewidth]{throughput_T8.png}
-  \caption{Throughput at \texttt{T=8}, the highest contention level
-  measured.}
-  \label{fig:tput-T8}
+  \includegraphics[width=0.49\linewidth]{scalability.png}\hfill
+  \includegraphics[width=0.49\linewidth]{throughput.png}
+  \caption{Per-primitive scalability across thread counts (left) and
+  the corresponding aggregated throughput summary (right).}
+  \label{fig:scale-tput}
 \end{figure}
 
 \subsection{What the numbers say}
@@ -460,7 +562,7 @@ We enumerate the contributing reasons explicitly.
   \texttt{slot\_count = 1024} atomic array. With a hot queue the SQS
   \texttt{suspend} path is never invoked, so the cost reduces to two
   atomics, $\approx 12\text{--}22\,\text{ns}$. This is the inversion
-  visible in \cref{fig:tput-T2,fig:tput-T4,fig:tput-T8}.
+  visible in \cref{fig:tput-grid}.
 
 \item \textbf{Kotlin's \texttt{Channel<T>(UNLIMITED)} adds coroutine
   state-machine overhead per \texttt{send}/\texttt{receive.}} The
@@ -516,42 +618,84 @@ cells. Cross-machine variance, p99/p999 latency, and a separate
 % =============================================================================
 
 \paragraph{Tools and models used.}
-We used Claude (Sonnet 4.5 and Opus 4.5) as the main coding agent, and
-ChatGPT (GPT-5) for paper explanation and quick lookups. Claude did most
-of the OCaml/Eio porting, the test scaffolding, and the benchmark
-drivers; ChatGPT was mostly used to make sense of the CQS paper.
+We initially started with Claude Sonnet, but Claude Opus became our
+main coding agent. We also used ChatGPT Codex (GPT-5) for paper
+explanation and quick lookups. Claude Opus did most of the OCaml/Eio
+porting, the test scaffolding, and the benchmark drivers.
 
 \paragraph{What worked well.}
-Once we wrote a clear plan up front --- one prompt per task, with the
-target file, the cell state, and the invariant we wanted preserved ---
-the agent produced working code on the first or second try. Prompt
-engineering (asking it to read the paper section first, then the Kotlin
-reference, then write the OCaml) saved a lot of back-and-forth.
+Several aspects contributed to the success of using an agentic LLM in
+the project. Dividing single-shot prompts into distinct phases
+significantly improved structure and clarity. The use of plan mode
+ensured detailed explanations and enhanced understanding at each
+stage. Sanity and smoke tests were used early on to prevent regressions
+during development. Assignment templates provided to Claude were
+instrumental in generating LinCheck and STM tests. Clear definition of
+benchmark requirements, along with a well-organized folder structure,
+streamlined the workflow. Additionally, human-in-the-loop discussions
+with Claude enabled the implementation of essential optimizations and
+alternatives, which proved crucial for a successful port.
 
 \paragraph{What did not work.}
-Vague prompts gave wrong answers with full confidence. Asking ``port
-this'' without specifying which cancellation mode or which resume mode
-got us a plausible-looking file that silently dropped the \texttt{Refuse}
-state. We caught it only when a linearizability test failed.
+Our experience revealed several significant limitations in using
+agentic LLMs for large-scale software development tasks. PDF inputs
+proved particularly ineffective, sometimes dramatically increasing
+token consumption. Sonnet demonstrated substantial weaknesses in
+preserving nuanced implementation invariants, frequently introducing
+silent errors that were difficult to detect without careful manual
+review. Poorly scoped or insufficiently precise prompts further
+amplified these issues; for example, an early attempt to have Sonnet
+port an implementation from Kotlin led to the silent omission of a
+critical \texttt{REFUSED} cell state, fundamentally breaking the
+correctness of the system and necessitating extensive repository-wide
+rewrites using Opus. However, even more capable models such as Opus
+were not immune to similar failures when operating on larger task
+units. During test suite generation, Opus introduced a subtle
+concurrency bug in semaphore testing by incorrectly configuring a
+\texttt{Semaphore(1)} for a scenario requiring \texttt{Semaphore(2)},
+causing thread blocking that had to be manually identified and
+corrected.
 
 \paragraph{What was surprising.}
-The agent did not flag the domain-locality of OCaml~5 effect
-continuations on its own --- we had to ask explicitly why a cross-domain
-test was hanging before it suggested Eio. Once pointed in the right
-direction, the rewrite was clean.
+One of the more surprising outcomes of our experience with agentic
+LLMs was their capacity to rapidly recover and substantially improve
+solution quality when guided by carefully framed, strategically
+designed questions. In several instances, the agent initially pursued
+flawed architectural directions --- such as attempting to implement
+lightweight threads through effect handlers which, while conceptually
+plausible, introduced critical issues related to continuation safety.
+Specifically, although data transferred across continuations could be
+made thread-safe, the continuation objects themselves were inherently
+unsafe for the intended concurrency model. This limitation became
+especially apparent when extending the system to support a cancellable
+API, a requirement that Sonnet failed to adequately address in its
+original implementation. However, once the problem was reframed
+through deliberate questioning and deeper chain-of-thought exploration
+using Opus, the agent was able to reassess its approach, identify more
+suitable abstractions, and ultimately propose a correct and
+significantly more robust port of CQS using Eio fibres~\cite{eio}.
+This demonstrated that while baseline outputs may be error-prone, the
+models possess a surprisingly strong capacity for strategic course
+correction when provided with precise conceptual guidance, highlighting
+the importance of human-driven interrogation and iterative refinement
+in maximizing the effectiveness of agentic development workflows.
 
 \paragraph{What was difficult.}
-Explaining benchmark results was the hardest part. We had to tell the
-agent that Java's \texttt{ReentrantLock} is reentrant (so the contended-
-mutex numbers were not apples-to-apples with our non-reentrant SQS
+Communication with Opus, and choosing the correct amount of verbosity
+in prompts, were both challenging. Explaining benchmark results was
+the hardest part. We had to tell the agent that Java's
+\texttt{ReentrantLock} is reentrant (so the contended-mutex numbers
+were not an apples-to-apples comparison with our non-reentrant SQS
 mutex), and that the producer-consumer pool numbers looked too good
 because the OCaml run was hitting the fast path. The agent will not
 notice these things unless you point them out.
 
 \paragraph{Your overall assessment.}
-Net helpful, but only because we treated it like a junior collaborator:
-plan first, prompt narrowly, and verify everything. We would use it
-the same way again.
+These failures collectively underscore that while agentic LLMs can
+accelerate development, they remain highly sensitive to prompt
+quality, struggle with preserving subtle correctness guarantees, and
+require rigorous human oversight to catch silent but potentially
+catastrophic implementation flaws.
 
 % =============================================================================
 \section{Conclusions}
@@ -570,15 +714,15 @@ would do next given more time.
 % Required. Percentages must sum to 100. Every member should contribute.
 
 \begin{center}
-\begin{tabular}{@{}lcl@{}}
+\begin{tabular}{@{}lc>{\raggedright\arraybackslash}p{0.45\linewidth}@{}}
 \toprule
 \textbf{Member} & \textbf{Contribution (\%)} & \textbf{Main responsibilities} \\
 \midrule
-Mitesh Sharma   & 40\% & e.g., lock-free implementation, QCheck-Lin tests \\
-Navaneeth M. Nambiar   & 30\% & e.g., baseline implementations, benchmarking harness \\
-Durwasa Chakraborty & 30\% & e.g., evaluation plots, report, literature survey \\
+Mitesh Sharma         & 40\% & e.g., lock-free implementation, QCheck-Lin tests \\
+Navaneeth M.\ Nambiar & 30\% & e.g., baseline implementations, benchmarking harness \\
+Durwasa Chakraborty   & 30\% & e.g., evaluation plots, report, literature survey \\
 \midrule
-\textbf{Total} & \textbf{100\%} & \\
+\textbf{Total}        & \textbf{100\%} & \\
 \bottomrule
 \end{tabular}
 \end{center}
