@@ -297,9 +297,323 @@ Describe what you actually built. Organise this section as sub-sections per
 major task; use the \emph{Tasks} list from the project idea as a checklist.
 
 \subsection{Implementation}
-Describe the implementation: key data structures, atomic operations used,
-subtle invariants, and any design choices you had to make. Link to the
-relevant files/commits in your GitHub repository.
+\label{sec:tasks-impl}
+
+Our implementation is split into two layers:
+(a) a domain-safe suspendable fibre layer
+(\texttt{lib/light\_thread.ml}); and
+(b) the core CQS engine (\texttt{lib/sqs\_effects.ml}).
+On top of these, we built six synchronization primitives in
+\texttt{implementations/}: \texttt{Mutex}, \texttt{Semaphore},
+\texttt{Barrier}, \texttt{CountDownLatch}, \texttt{BlockingQueuePool},
+and \texttt{BlockingStackPool}.
+
+\subsubsection{Domain-Safe Fibre: \texttt{Light\_thread}}
+\label{sec:impl-light-thread}
+
+The decision to implement light-weight threads as a stand-in for Kotlin
+coroutines was directly inspired by the lectures in class, where we
+implemented a similar go-routine mechanism on top of OCaml~5
+effect handlers~\cite{kcsrk2020}. The first design decision was how to
+represent a suspended fibre. An early prototype (commit
+\texttt{ecb5855}) used raw OCaml~5 effect handlers and stored suspended
+fibres as \texttt{Effect.Deep.continuation} values. However, deeper
+inspection revealed a critical issue with this approach.
+
+\paragraph{OCaml~5 continuations are domain-local.}
+The OCaml~5 runtime stores a pointer into the \emph{originating}
+domain's stack, so calling \texttt{Effect.Deep.continue~k~v} from a
+different domain is undefined behaviour. This made it impossible to
+have one domain call \texttt{acquire} while another calls
+\texttt{release}, which would have made all concurrent implementations
+incorrect. The constraint becomes especially problematic when
+implementing the \texttt{cancel} API call for a fibre, since
+cancellation is fundamentally a cross-domain interaction.
+
+To deal with this limitation, the final design (commit \texttt{17adae2})
+replaces raw effect handlers with Eio's fibre scheduler~\cite{eio}.
+The Eio runtime guarantees that the wake-up function it hands back to
+us is safe to call from any domain or systhread. The key type is:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[language=Caml]
+(* lib/light_thread.ml, line 57 *)
+type 'a t = ('a, exn) result -> unit
+\end{lstlisting}
+\end{minipage}
+
+A suspended fibre is therefore a heap-allocated, domain-safe
+\emph{enqueue function}. Calling it with \texttt{Ok~v} schedules the
+fibre to resume with value \texttt{v}, mapping back to
+\texttt{resume(v)}. Calling it with \texttt{Error~e} schedules it to
+resume by raising \texttt{e}, mapping back to \texttt{cancel(exn)}.
+The three primitives built on top are:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[language=Caml]
+let suspend register =
+  Eio.Private.Suspend.enter "sqs_suspend"
+    (fun _ctx enqueue -> register enqueue)
+
+let resume      (t : 'a t) (v : 'a)  : unit = t (Ok v)
+let discontinue (t : 'a t) (e : exn) : unit = t (Error e)
+\end{lstlisting}
+\end{minipage}
+
+\subsubsection{Core SQS Data Structures}
+\label{sec:impl-sqs-data}
+
+\paragraph{Segment.}
+Waiters are stored in an unbounded doubly-linked list of
+\emph{segments}, each holding exactly $16$ cells:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[language=Caml]
+'a segment = {
+  id              : int;
+  cells           : 'a cell_state Atomic.t array;  (* 16 cells *)
+  next            : 'a segment option Atomic.t;
+  prev            : 'a segment option Atomic.t;
+  cancelled_count : int Atomic.t;
+  pointers        : int Atomic.t;
+}
+\end{lstlisting}
+\end{minipage}
+
+The fields are:
+(a) \texttt{cells}: array storing the cells in the segment;
+(b) \texttt{next}: the next segment in the infinite queue;
+(c) \texttt{prev}: the previous segment in the infinite queue;
+(d) \texttt{cancelled\_count}: tracks how many cells in the segment have
+been cleaned up;
+(e) \texttt{pointers}: a lightweight reference count for the two SQS
+head/tail pointers (\texttt{resume\_segment}, \texttt{suspend\_segment})
+that may still be pointing at the segment.
+
+The doubly-linked layout is purely an implementation detail enabling
+fast unlinking of segments whose cells have all been cancelled or
+refused.
+
+\paragraph{Cell State Machine.}
+A cell slot in a segment can take one of the following states:
+(a) \texttt{Empty}: no party has visited yet (default);
+(b) \texttt{Waiter}: a live fibre is parked in the cell;
+(c) \texttt{Cancelling}: transient state when a fibre cancellation is in
+flight;
+(d) \texttt{Cancelled}: the waiter in the cell has been cancelled;
+(e) \texttt{Refuse}: the cell refuses to satisfy the next \texttt{resume}
+operation;
+(f) \texttt{Resumed}: continuation successfully handed off;
+(g) \texttt{Taken}: value grabbed by a concurrent suspend;
+(h) \texttt{Broken}: a SYNC resume has timed out;
+(i) \texttt{Value}: resume deposited a value before suspend;
+(j) \texttt{WrappedValue}: as \texttt{Value}, but distinguishable from
+\texttt{Waiter}.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.9\linewidth]{state_diagram.png}
+  \caption{Cell state machine. From the initial \texttt{Empty} state a
+  cell either transitions to \texttt{Value} (resume arrives first) or
+  \texttt{Waiter} (suspend arrives first), and from there to one of
+  the terminal states (\texttt{Resumed}, \texttt{Taken},
+  \texttt{Cancelled}, \texttt{Refuse}, or \texttt{Broken}) via the
+  paths described in \cref{sec:impl-sqs-data,sec:impl-cancel}.}
+  \label{fig:cell-state}
+\end{figure}
+
+Initially, when a cell is in \texttt{Empty} state, one of the following
+two transitions is possible:
+(a) \texttt{Empty} $\to$ \texttt{Value}, when a \texttt{resume} reaches
+the cell first; or
+(b) \texttt{Empty} $\to$ \texttt{Waiter}, when a \texttt{suspend} reaches
+the cell before any \texttt{resume}.
+
+\paragraph{Case~I: \texttt{resume} arrives first.}
+The \texttt{value} passed in by the resume is stored into the CQS
+cell. Any subsequent store directed at the slot will be instantly
+satisfied. Two modes of resumption are supported by
+CQS~\cite{koval2023cqs}:
+(a) \textbf{\texttt{Async}}: deposits the value into the cell and
+returns immediately. The paired \texttt{suspend} will claim it via the
+\emph{elimination path}.
+(b) \textbf{\texttt{Sync}}: concurrent resumes and stores are still
+allowed into the CQS, but the resume busy-waits for a bounded time. If
+no concurrent \texttt{suspend} matches within that window, the cell is
+marked \texttt{Broken}; otherwise the suspended fibre is immediately
+continued with the value passed by the \texttt{resume}.
+
+All six primitives use \texttt{Async} mode because none of them
+requires a synchronous handshake: a \texttt{release} or
+\texttt{count\_down} can return as soon as the value is enqueued.
+\texttt{Sync} mode exists for use cases that require the resumer to
+confirm the value was actually claimed before proceeding.
+
+\paragraph{Case~II: \texttt{suspend} arrives first.}
+A \texttt{suspend} action either is satisfied by an already-deposited
+\texttt{resume} (the cell transitions \texttt{Empty} $\to$
+\texttt{Waiter} $\to$ \texttt{Resumed}), or it enters an empty cell and
+parks (\texttt{Empty} $\to$ \texttt{Waiter}). Once parked, two further
+outcomes are possible:
+(a) \emph{Resumption Path}: a matching \texttt{resume} arrives, and the
+cell transitions \texttt{Waiter} $\to$ \texttt{Resumed} with the value
+supplied by the resumer.
+(b) \emph{Cancellation Path}: a \texttt{cancel} request fires on the
+parked fibre, transitioning the cell to \texttt{Cancelled} or
+\texttt{Refuse} depending on the cancellation mode (see
+\cref{sec:impl-cancel}).
+
+\paragraph{SQS Record.}
+\label{sec:impl-sqs-record}
+The top-level SQS handle is a record of atomic cursors and primitive
+hooks:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[language=Caml,basicstyle=\ttfamily\footnotesize]
+(* sqs_effects.ml, lines 109--119 *)
+and 'a t = {
+  resume_segment           : 'a segment Atomic.t;
+  resume_idx               : int Atomic.t;
+  suspend_segment          : 'a segment Atomic.t;
+  suspend_idx              : int Atomic.t;
+  resume_mode              : resume_mode;       (* Sync | Async *)
+  cancellation_mode        : cancellation_mode; (* Simple | Smart *)
+  on_cancellation          : unit -> bool;
+  try_return_refused_value : 'a -> bool;
+  return_value             : 'a -> unit;
+}
+\end{lstlisting}
+\end{minipage}
+
+Two pairs of \texttt{(segment, idx)} fields maintain independent
+cursors for the resumer (front) and the suspender (back). Both indices
+advance monotonically with Fetch-And-Add, which ends up being the only
+atomic read-modify-write primitive needed to claim a cell.
+
+\subsubsection{Cancellation Procedure and Modes}
+\label{sec:impl-cancel}
+
+Cancellation uses a two-phase protocol to prevent races with concurrent
+\texttt{resume} calls.
+\paragraph{Phase~1 --- mark \texttt{Cancelling}.}
+\texttt{try\_mark\_cancelling} (\texttt{lib/sqs\_effects.ml:422--434})
+CAS-es the cell from \texttt{Waiter} to \texttt{Cancelling}. If the
+cell is already \texttt{Resumed}, the cancellation loses the race and
+returns \texttt{false}: the resume is already committed and the fibre
+will receive the value normally.
+\paragraph{Phase~2 --- finalise.}
+\texttt{handle\_cancellation}
+(\texttt{lib/sqs\_effects.ml:460--489}) installs the final state in
+the cell. Behaviour here depends on the configured cancellation mode.
+
+CQS supports two modes of cancellation: \textbf{Simple} and
+\textbf{Smart}~\cite{koval2023cqs}.
+
+In the \textbf{Simple} mode, when a cell is marked \texttt{Cancelled}
+the waiter is discontinued, the next \texttt{resume} reaching the cell
+skips it and fails (it does not retry cancelled cells), and the
+segment may eventually be unlinked once all of its slots are
+\texttt{Cancelled}.
+
+The \textbf{Smart} mode, by contrast, interacts with the primitive by
+invoking an \texttt{on\_cancellation()} handler. If this handler
+returns \texttt{true}, the cell is marked \texttt{Cancelled}, with an
+extra check for any value that may have been inserted while the cell
+was in the \texttt{Cancelling} state; such a stranded value is
+forwarded with another \texttt{resume} call so that no permits are
+lost. If \texttt{on\_cancellation()} returns \texttt{false}, the cell
+is marked \texttt{Refuse}: the next \texttt{resume} arriving at this
+cell reroutes its value back into the data structure (via
+\texttt{try\_return\_refused\_value}) before discontinuing the
+continuation.
+
+The \texttt{Cancelling} transient state serialises against
+\texttt{Async} resumers: a resumer that finds \texttt{Cancelling} must
+CAS against the live \texttt{Cancelling~k} pointer (rather than
+reconstructing one) and may deposit a value into it. The cancellation
+handler reads this back via \texttt{Atomic.exchange} in
+\texttt{mark\_impl}.
+
+\subsubsection{Key Atomic Operations}
+\label{sec:impl-atomics}
+
+The implementation uses three atomic operations from OCaml~5's
+\texttt{Atomic} module:
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.42\linewidth}p{0.50\linewidth}@{}}
+\toprule
+\textbf{Operation} & \textbf{Used for} \\
+\midrule
+\texttt{Atomic.fetch\_and\_add idx 1}
+  & Claiming the next cell index (suspend / resume cursors) \\
+\texttt{Atomic.compare\_and\_set} \newline
+\texttt{\ \ cell expected desired}
+  & All cell-state transitions; segment linking; done-bit install \\
+\texttt{Atomic.exchange cell new\_state}
+  & Cancellation finalisation (\texttt{mark\_impl}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{fetch\_and\_add} on the cursor is the only operation that must
+succeed unconditionally, ensuring every caller receives a unique index.
+All subsequent cell operations are CAS-based and retry on conflict.
+\texttt{Atomic.exchange} is used during cancellation finalisation
+because the old state of the cell needs to be atomically replaced
+\emph{while} its value is being inspected; a CAS-loop here would create
+a window in which a concurrent \texttt{resume} could insert a value
+between the read and the swap.
+
+Every shared variable in the CQS implementation is either an
+\texttt{Atomic.t} or immutable. Correctness relies entirely on the
+CAS/FAA-based state machines described above, matching the lock-free
+design of the original CQS algorithm~\cite{koval2023cqs}.
+
+\paragraph{The Physical-Equality Invariant.}
+A critical invariant pervades every CAS in our implementation:
+\emph{always CAS against a heap pointer read in the same critical
+region, never against a freshly reconstructed value of the same shape.}
+OCaml's \texttt{Atomic.compare\_and\_set} requires \emph{physical}
+equality (\texttt{==}), not structural equality (\texttt{=}), for a
+successful CAS. A freshly allocated \texttt{Waiter~k} is a different
+heap object from the \texttt{Waiter~k} stored in the cell, so the CAS
+silently fails even though the logical values are equal. The pattern
+appears throughout the codebase, e.g.:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[language=Caml]
+(* try_resume_impl: CAS against [curr], not [Waiter k] *)
+| Waiter k as curr ->
+    if not (Segment.cas seg i curr Resumed) then cell_loop ()
+
+(* try_mark_cancelling: CAS against [curr], not [Cancelling k] *)
+| Waiter k as curr ->
+    if Segment.cas seg i curr (Cancelling k) then true
+
+(* park_continuation: CAS against [cell], not [Value v] *)
+| Value v | WrappedValue v ->
+    if Segment.cas seg i cell Taken then ...
+\end{lstlisting}
+\end{minipage}
+
+In each case, the matched \texttt{as~curr} (or
+\texttt{let~cell = Segment.get~seg~i}) binding captures the live heap
+pointer before the CAS. Missing this caveat leads to silent spurious
+CAS failures that manifest as liveness bugs rather than crashes.
+
+\subsubsection{Synchronization Primitives}
+\label{sec:impl-primitives}
+
+On top of the SQS core we built six synchronization primitives,
+following the descriptions in the original CQS
+paper~\cite{koval2023cqs}: \texttt{Mutex}, \texttt{Semaphore},
+\texttt{Barrier}, \texttt{CountDownLatch},
+\texttt{BlockingQueuePool}, and \texttt{BlockingStackPool}. All six
+are configured in \texttt{Async} resume mode; the latch and semaphore
+additionally use Smart cancellation, while the blocking pools and
+barrier use Simple cancellation. Their behaviour at the primitive
+level is summarised in \cref{sec:bg-primitives}.
 
 \subsection{Testing and verification}
 \label{sec:tasks-test}
@@ -471,24 +785,22 @@ table lives in \texttt{benchmark/README.md}.
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.245\linewidth]{mean_latency_T1.png}\hfill
-  \includegraphics[width=0.245\linewidth]{mean_latency_T2.png}\hfill
-  \includegraphics[width=0.245\linewidth]{mean_latency_T4.png}\hfill
-  \includegraphics[width=0.245\linewidth]{mean_latency_T8.png}
+  \includegraphics[width=0.32\linewidth]{mean_latency_T1.png}\hfill
+  \includegraphics[width=0.32\linewidth]{mean_latency_T2.png}\hfill
+  \includegraphics[width=0.32\linewidth]{mean_latency_T8.png}
   \caption{Mean per-op latency (ns) per primitive at thread counts
-  \texttt{T=1, 2, 4, 8} (left to right), grouped by implementation.}
+  \texttt{T=1, 2, 8} (left to right), grouped by implementation.}
   \label{fig:lat-grid}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.245\linewidth]{throughput_T1.png}\hfill
-  \includegraphics[width=0.245\linewidth]{throughput_T2.png}\hfill
-  \includegraphics[width=0.245\linewidth]{throughput_T4.png}\hfill
-  \includegraphics[width=0.245\linewidth]{throughput_T8.png}
-  \caption{Throughput (ops/s) per primitive at \texttt{T=1, 2, 4, 8}
+  \includegraphics[width=0.32\linewidth]{throughput_T1.png}\hfill
+  \includegraphics[width=0.32\linewidth]{throughput_T2.png}\hfill
+  \includegraphics[width=0.32\linewidth]{throughput_T8.png}
+  \caption{Throughput (ops/s) per primitive at \texttt{T=1, 2, 8}
   (left to right). \texttt{T=1} is the uncontended fast path;
-  \texttt{T=2}--\texttt{8} force cross-domain hand-off on the
+  \texttt{T=2}, \texttt{T=8} force cross-domain hand-off on the
   contended workloads.}
   \label{fig:tput-grid}
 \end{figure}
