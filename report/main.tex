@@ -30,6 +30,11 @@
   urlcolor=blue!60!black,
 }
 
+% Hyperlink short commit hashes to GitHub.
+\newcommand{\commit}[1]{%
+  \href{https://github.com/durwasa-chakraborty/CS6868_Concurrent_Programming_Project/commit/#1}%
+       {\texttt{#1}}}
+
 %Allow paragraph reflow to absorb long \texttt{...} identifiers without
 % overfull hboxes. \sloppy prefers wider inter-word glue over margin
 % violations; \emergencystretch raises the threshold; xurl lets URLs and
@@ -316,7 +321,7 @@ coroutines was directly inspired by the lectures in class, where we
 implemented a similar go-routine mechanism on top of OCaml~5
 effect handlers~\cite{kcsrk2020}. The first design decision was how to
 represent a suspended fibre. An early prototype (commit
-\texttt{ecb5855}) used raw OCaml~5 effect handlers and stored suspended
+\commit{ecb5855}) used raw OCaml~5 effect handlers and stored suspended
 fibres as \texttt{Effect.Deep.continuation} values. However, deeper
 inspection revealed a critical issue with this approach.
 
@@ -330,7 +335,7 @@ incorrect. The constraint becomes especially problematic when
 implementing the \texttt{cancel} API call for a fibre, since
 cancellation is fundamentally a cross-domain interaction.
 
-To deal with this limitation, the final design (commit \texttt{17adae2})
+To deal with this limitation, the final design (commit \commit{17adae2})
 replaces raw effect handlers with Eio's fibre scheduler~\cite{eio}.
 The Eio runtime guarantees that the wake-up function it hands back to
 us is safe to call from any domain or systhread. The key type is:
@@ -785,24 +790,18 @@ table lives in \texttt{benchmark/README.md}.
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.32\linewidth]{mean_latency_T1.png}\hfill
-  \includegraphics[width=0.32\linewidth]{mean_latency_T2.png}\hfill
-  \includegraphics[width=0.32\linewidth]{mean_latency_T8.png}
-  \caption{Mean per-op latency (ns) per primitive at thread counts
-  \texttt{T=1, 2, 8} (left to right), grouped by implementation.}
-  \label{fig:lat-grid}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.32\linewidth]{throughput_T1.png}\hfill
-  \includegraphics[width=0.32\linewidth]{throughput_T2.png}\hfill
-  \includegraphics[width=0.32\linewidth]{throughput_T8.png}
-  \caption{Throughput (ops/s) per primitive at \texttt{T=1, 2, 8}
-  (left to right). \texttt{T=1} is the uncontended fast path;
-  \texttt{T=2}, \texttt{T=8} force cross-domain hand-off on the
-  contended workloads.}
-  \label{fig:tput-grid}
+  \includegraphics[width=0.49\linewidth]{mean_latency_T1.png}\hfill
+  \includegraphics[width=0.49\linewidth]{throughput_T1.png}\\[0.6em]
+  \includegraphics[width=0.49\linewidth]{mean_latency_T2.png}\hfill
+  \includegraphics[width=0.49\linewidth]{throughput_T2.png}\\[0.6em]
+  \includegraphics[width=0.49\linewidth]{mean_latency_T8.png}\hfill
+  \includegraphics[width=0.49\linewidth]{throughput_T8.png}
+  \caption{Mean per-op latency (ns, left column) and throughput
+  (ops/s, right column) per primitive, with rows pinned to thread
+  counts \texttt{T=1, 2, 8} (top to bottom). \texttt{T=1} is the
+  uncontended fast path; \texttt{T=2}, \texttt{T=8} force
+  cross-domain hand-off on the contended workloads.}
+  \label{fig:lat-tput-grid}
 \end{figure}
 
 \begin{figure}[htbp]
@@ -874,7 +873,7 @@ We enumerate the contributing reasons explicitly.
   \texttt{slot\_count = 1024} atomic array. With a hot queue the SQS
   \texttt{suspend} path is never invoked, so the cost reduces to two
   atomics, $\approx 12\text{--}22\,\text{ns}$. This is the inversion
-  visible in \cref{fig:tput-grid}.
+  visible in \cref{fig:lat-tput-grid}.
 
 \item \textbf{Kotlin's \texttt{Channel<T>(UNLIMITED)} adds coroutine
   state-machine overhead per \texttt{send}/\texttt{receive.}} The
@@ -889,7 +888,7 @@ We enumerate the contributing reasons explicitly.
 \item \textbf{Single-permit serialisation in \texttt{W2\_contended}.}
   \texttt{Semaphore(1)} forces every operation through one cell of the
   SQS infinite array, so all contention in the test serialises. The
-  added \texttt{Semaphore(half)} run (commit \texttt{3165e99},
+  added \texttt{Semaphore(half)} run (commit \commit{3165e99},
   \texttt{T=4} and \texttt{T=8}) lets $t/2$ acquirers proceed in
   parallel while the other $t/2$ park, spreading the wake-up cost
   across multiple cells. The smaller \texttt{Semaphore(half)} latency
@@ -907,7 +906,7 @@ We enumerate the contributing reasons explicitly.
 
 \item \textbf{Mean latency, not p99.} Fairness shows up most clearly
   in the latency \emph{tail}. We report mean only; the mean-latency
-  plots referenced here (commit \texttt{8487c68}) are not p99 plots.
+  plots referenced here (commit \commit{8487c68}) are not p99 plots.
   Tail-latency analysis is left as future work
   (\cref{sec:eval-limitations}).
 \end{enumerate}
@@ -1030,9 +1029,9 @@ would do next given more time.
 \toprule
 \textbf{Member} & \textbf{Contribution (\%)} & \textbf{Main responsibilities} \\
 \midrule
-Mitesh Sharma         & 40\% & e.g., lock-free implementation, QCheck-Lin tests \\
-Navaneeth M.\ Nambiar & 30\% & e.g., baseline implementations, benchmarking harness \\
-Durwasa Chakraborty   & 30\% & e.g., evaluation plots, report, literature survey \\
+Mitesh Sharma         & 40\% &  CQS Core implementations, Revisions with Effect Handlers, Eio.Fiber integration, Async Primitive implementations\\
+Navaneeth M Nambiar & 30\% &  Developing QCheck-Lin tests and STM for implementations, Project Refactoring while keeping the regressions minimal\\
+Durwasa Chakraborty   & 30\% & Benchmarking suite with Java and Kotlin, Graph generation, Report compilation \\
 \midrule
 \textbf{Total}        & \textbf{100\%} & \\
 \bottomrule
