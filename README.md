@@ -186,4 +186,4 @@ live in [`benchmark/README.md`](benchmark/README.md).
   ([source](report/main.tex))
 - Design notes: [`SQS.md`](SQS.md)
 - Kotlin Lincheck reference: [`CqsLincheck_Explained.md`](CqsLincheck_Explained.md)
-- Task list: [`CLAUDE.md`](CLAUDE.md)
+
