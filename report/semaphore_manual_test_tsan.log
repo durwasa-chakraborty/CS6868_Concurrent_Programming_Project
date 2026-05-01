@@ -1,0 +1,7 @@
+ok  sequential_basic
+ok  try_acquire
+ok  mutual_exclusion
+ok  cross_domain_wakeup
+ok  stress
+
+All Semaphore manual tests passed!

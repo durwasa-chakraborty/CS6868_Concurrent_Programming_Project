@@ -1,0 +1,107 @@
+[2Krandom seed: 18342368
+==================
+WARNING: ThreadSanitizer: data race (pid=62041)
+  Atomic read of size 8 at 0x0001051ebfa0 by thread T476 (mutexes: write M0):
+    #0 caml_install_signal_handler signals.c:700 (barrier_lin_test.exe:arm64+0x10022f78c)
+    #1 caml_c_call <null> (barrier_lin_test.exe:arm64+0x10023acec)
+    #2 camlStdlib__Sys.set_signal_322 <null> (barrier_lin_test.exe:arm64+0x100113388)
+    #3 camlEio_posix.fun_1013 <null> (barrier_lin_test.exe:arm64+0x10005b398)
+    #4 camlStdlib__Domain.body_741 <null> (barrier_lin_test.exe:arm64+0x10016a6e8)
+    #5 caml_start_program <null> (barrier_lin_test.exe:arm64+0x10023ae7c)
+    #6 caml_callback_exn callback.c:206 (barrier_lin_test.exe:arm64+0x1001f4a4c)
+    #7 caml_callback_res callback.c:321 (barrier_lin_test.exe:arm64+0x1001f539c)
+    #8 domain_thread_func domain.c:1245 (barrier_lin_test.exe:arm64+0x1001f8ed0)
+
+  Previous write of size 8 at 0x0001051ebfa0 by thread T474 (mutexes: write M1, write M2):
+    #0 caml_modify memory.c:225 (barrier_lin_test.exe:arm64+0x10021ceb4)
+    #1 caml_install_signal_handler signals.c:718 (barrier_lin_test.exe:arm64+0x10022f85c)
+    #2 caml_c_call <null> (barrier_lin_test.exe:arm64+0x10023acec)
+    #3 camlStdlib__Sys.set_signal_322 <null> (barrier_lin_test.exe:arm64+0x100113388)
+    #4 camlEio_posix.fun_1013 <null> (barrier_lin_test.exe:arm64+0x10005b398)
+    #5 camlStdlib__Domain.body_741 <null> (barrier_lin_test.exe:arm64+0x10016a6e8)
+    #6 caml_start_program <null> (barrier_lin_test.exe:arm64+0x10023ae7c)
+    #7 caml_callback_exn callback.c:206 (barrier_lin_test.exe:arm64+0x1001f4a4c)
+    #8 caml_callback_res callback.c:321 (barrier_lin_test.exe:arm64+0x1001f539c)
+    #9 domain_thread_func domain.c:1245 (barrier_lin_test.exe:arm64+0x1001f8ed0)
+
+  Mutex M0 (0x0001070001f0) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (barrier_lin_test.exe:arm64+0x1002279e4)
+    #2 caml_init_domains domain.c:974 (barrier_lin_test.exe:arm64+0x1001f81a4)
+    #3 caml_init_gc gc_ctrl.c:348 (barrier_lin_test.exe:arm64+0x100208880)
+    #4 caml_startup_common startup_nat.c:106 (barrier_lin_test.exe:arm64+0x10023a254)
+    #5 caml_main startup_nat.c:146 (barrier_lin_test.exe:arm64+0x10023a430)
+    #6 main main.c:37 (barrier_lin_test.exe:arm64+0x100217350)
+
+  Mutex M1 (0x000107000328) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (barrier_lin_test.exe:arm64+0x1002279e4)
+    #2 caml_init_domains domain.c:974 (barrier_lin_test.exe:arm64+0x1001f81a4)
+    #3 caml_init_gc gc_ctrl.c:348 (barrier_lin_test.exe:arm64+0x100208880)
+    #4 caml_startup_common startup_nat.c:106 (barrier_lin_test.exe:arm64+0x10023a254)
+    #5 caml_main startup_nat.c:146 (barrier_lin_test.exe:arm64+0x10023a430)
+    #6 main main.c:37 (barrier_lin_test.exe:arm64+0x100217350)
+
+  Mutex M2 (0x0001026ba9a8) created at:
+    #0 pthread_mutex_lock <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x3488c)
+    #1 caml_install_signal_handler signals.c:711 (barrier_lin_test.exe:arm64+0x10022f7f8)
+    #2 caml_c_call <null> (barrier_lin_test.exe:arm64+0x10023acec)
+    #3 camlStdlib__Sys.set_signal_322 <null> (barrier_lin_test.exe:arm64+0x100113388)
+    #4 camlEio_posix.fun_1013 <null> (barrier_lin_test.exe:arm64+0x10005b398)
+    #5 camlStdlib__Domain.body_741 <null> (barrier_lin_test.exe:arm64+0x10016a6e8)
+    #6 caml_start_program <null> (barrier_lin_test.exe:arm64+0x10023ae7c)
+    #7 caml_callback_exn callback.c:206 (barrier_lin_test.exe:arm64+0x1001f4a4c)
+    #8 caml_callback_res callback.c:321 (barrier_lin_test.exe:arm64+0x1001f539c)
+    #9 domain_thread_func domain.c:1245 (barrier_lin_test.exe:arm64+0x1001f8ed0)
+
+  Thread T476 (tid=13777094, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (barrier_lin_test.exe:arm64+0x1001f8bc0)
+    #2 caml_c_call <null> (barrier_lin_test.exe:arm64+0x10023acec)
+    #3 camlStdlib__Domain.spawn_736 <null> (barrier_lin_test.exe:arm64+0x10016a5e0)
+    #4 camlStdlib__Array.init_291 <null> (barrier_lin_test.exe:arm64+0x100143010)
+    #5 camlLin_harness.run_parallel_548 <null> (barrier_lin_test.exe:arm64+0x100007950)
+    #6 camlLin_harness.fun_1203 <null> (barrier_lin_test.exe:arm64+0x100008484)
+    #7 camlQCheck2.loop_4291 <null> (barrier_lin_test.exe:arm64+0x10002c1e0)
+    #8 camlQCheck2.run_law_4286 <null> (barrier_lin_test.exe:arm64+0x10002c068)
+    #9 camlQCheck2.check_state_input_4354 <null> (barrier_lin_test.exe:arm64+0x10002d770)
+    #10 camlQCheck2.check_cell_inner_10771 <null> (barrier_lin_test.exe:arm64+0x10002de20)
+    #11 camlQCheck_base_runner.aux_map_1445 <null> (barrier_lin_test.exe:arm64+0x10000db04)
+    #12 camlStdlib__List.map_333 <null> (barrier_lin_test.exe:arm64+0x100126c44)
+    #13 camlQCheck_base_runner.run_tests_inner_2445 <null> (barrier_lin_test.exe:arm64+0x10000d0dc)
+    #14 camlQCheck_base_runner.run_tests_main_inner_3053 <null> (barrier_lin_test.exe:arm64+0x10000e698)
+    #15 camlDune__exe__Barrier_lin_test.entry <null> (barrier_lin_test.exe:arm64+0x100007224)
+    #16 caml_program <null> (barrier_lin_test.exe:arm64+0x10000177c)
+    #17 caml_start_program <null> (barrier_lin_test.exe:arm64+0x10023ae7c)
+    #18 caml_startup_common startup_nat.c:127 (barrier_lin_test.exe:arm64+0x10023a358)
+    #19 caml_main startup_nat.c:146 (barrier_lin_test.exe:arm64+0x10023a430)
+    #20 main main.c:37 (barrier_lin_test.exe:arm64+0x100217350)
+
+  Thread T474 (tid=13777092, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (barrier_lin_test.exe:arm64+0x1001f8bc0)
+    #2 caml_c_call <null> (barrier_lin_test.exe:arm64+0x10023acec)
+    #3 camlStdlib__Domain.spawn_736 <null> (barrier_lin_test.exe:arm64+0x10016a5e0)
+    #4 camlStdlib__Array.init_291 <null> (barrier_lin_test.exe:arm64+0x100142fa4)
+    #5 camlLin_harness.run_parallel_548 <null> (barrier_lin_test.exe:arm64+0x100007950)
+    #6 camlLin_harness.fun_1203 <null> (barrier_lin_test.exe:arm64+0x100008484)
+    #7 camlQCheck2.loop_4291 <null> (barrier_lin_test.exe:arm64+0x10002c1e0)
+    #8 camlQCheck2.run_law_4286 <null> (barrier_lin_test.exe:arm64+0x10002c068)
+    #9 camlQCheck2.check_state_input_4354 <null> (barrier_lin_test.exe:arm64+0x10002d770)
+    #10 camlQCheck2.check_cell_inner_10771 <null> (barrier_lin_test.exe:arm64+0x10002de20)
+    #11 camlQCheck_base_runner.aux_map_1445 <null> (barrier_lin_test.exe:arm64+0x10000db04)
+    #12 camlStdlib__List.map_333 <null> (barrier_lin_test.exe:arm64+0x100126c44)
+    #13 camlQCheck_base_runner.run_tests_inner_2445 <null> (barrier_lin_test.exe:arm64+0x10000d0dc)
+    #14 camlQCheck_base_runner.run_tests_main_inner_3053 <null> (barrier_lin_test.exe:arm64+0x10000e698)
+    #15 camlDune__exe__Barrier_lin_test.entry <null> (barrier_lin_test.exe:arm64+0x100007224)
+    #16 caml_program <null> (barrier_lin_test.exe:arm64+0x10000177c)
+    #17 caml_start_program <null> (barrier_lin_test.exe:arm64+0x10023ae7c)
+    #18 caml_startup_common startup_nat.c:127 (barrier_lin_test.exe:arm64+0x10023a358)
+    #19 caml_main startup_nat.c:146 (barrier_lin_test.exe:arm64+0x10023a430)
+    #20 main main.c:37 (barrier_lin_test.exe:arm64+0x100217350)
+
+SUMMARY: ThreadSanitizer: data race signals.c:700 in caml_install_signal_handler
+==================
+================================================================================
+[32;1msuccess[0m (ran 3 tests)
+ThreadSanitizer: reported 1 warnings

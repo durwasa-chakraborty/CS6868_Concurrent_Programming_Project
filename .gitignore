@@ -1,3 +1,4 @@
+.vscode
 *.annot
 *.cmo
 *.cma
@@ -7,6 +8,10 @@
 *.cmx
 *.cmxs
 *.cmxa
+*.md
+*.png
+*.class
+*.csv
 
 # Files containing detailed information about the compilation (generated
 # by `ocamlc`/`ocamlopt` when invoked using the option `-bin-annot`).
@@ -34,3 +39,24 @@ setup.log
 
 # Local OPAM switch
 _opam/
+
+# Benchmark build artifacts
+benchmark/java/classes/
+benchmark/kotlin/classes/
+benchmark/results/
+.DS_Store
+
+
+report/.auctex-auto/main.el
+report/main.aux
+report/main.bbl
+report/main.blg
+report/main.fdb_latexmk
+report/main.fls
+report/main.log
+report/main.out
+report/main.pdf
+report/main.synctex.gz
+
+project.org
+report/.auctex-auto/references.el

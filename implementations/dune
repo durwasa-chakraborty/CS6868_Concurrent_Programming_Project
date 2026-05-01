@@ -1,0 +1,9 @@
+; Library: synchronization primitives built on top of sqs_eio
+(library
+ (name sqs_primitives)
+ (wrapped false)
+ (modules semaphore mutex count_down_latch barrier
+          blocking_queue_pool blocking_stack_pool)
+ (libraries sqs_eio)
+ (ocamlopt_flags (:standard -w -32))
+ (ocamlc_flags (:standard -w -32)))

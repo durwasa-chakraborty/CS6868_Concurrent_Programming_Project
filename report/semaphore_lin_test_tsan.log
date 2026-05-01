@@ -1,0 +1,107 @@
+[2Krandom seed: 317958774
+==================
+WARNING: ThreadSanitizer: data race (pid=62016)
+  Atomic read of size 8 at 0x000102cebfa0 by thread T8 (mutexes: write M0):
+    #0 caml_install_signal_handler signals.c:700 (semaphore_lin_test.exe:arm64+0x10022fc54)
+    #1 caml_c_call <null> (semaphore_lin_test.exe:arm64+0x10023b1b4)
+    #2 camlStdlib__Sys.set_signal_322 <null> (semaphore_lin_test.exe:arm64+0x100113850)
+    #3 camlEio_posix.fun_1013 <null> (semaphore_lin_test.exe:arm64+0x10005b860)
+    #4 camlStdlib__Domain.body_741 <null> (semaphore_lin_test.exe:arm64+0x10016abb0)
+    #5 caml_start_program <null> (semaphore_lin_test.exe:arm64+0x10023b344)
+    #6 caml_callback_exn callback.c:206 (semaphore_lin_test.exe:arm64+0x1001f4f14)
+    #7 caml_callback_res callback.c:321 (semaphore_lin_test.exe:arm64+0x1001f5864)
+    #8 domain_thread_func domain.c:1245 (semaphore_lin_test.exe:arm64+0x1001f9398)
+
+  Previous write of size 8 at 0x000102cebfa0 by thread T6 (mutexes: write M1, write M2):
+    #0 caml_modify memory.c:225 (semaphore_lin_test.exe:arm64+0x10021d37c)
+    #1 caml_install_signal_handler signals.c:718 (semaphore_lin_test.exe:arm64+0x10022fd24)
+    #2 caml_c_call <null> (semaphore_lin_test.exe:arm64+0x10023b1b4)
+    #3 camlStdlib__Sys.set_signal_322 <null> (semaphore_lin_test.exe:arm64+0x100113850)
+    #4 camlEio_posix.fun_1013 <null> (semaphore_lin_test.exe:arm64+0x10005b860)
+    #5 camlStdlib__Domain.body_741 <null> (semaphore_lin_test.exe:arm64+0x10016abb0)
+    #6 caml_start_program <null> (semaphore_lin_test.exe:arm64+0x10023b344)
+    #7 caml_callback_exn callback.c:206 (semaphore_lin_test.exe:arm64+0x1001f4f14)
+    #8 caml_callback_res callback.c:321 (semaphore_lin_test.exe:arm64+0x1001f5864)
+    #9 domain_thread_func domain.c:1245 (semaphore_lin_test.exe:arm64+0x1001f9398)
+
+  Mutex M0 (0x000107400328) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (semaphore_lin_test.exe:arm64+0x100227eac)
+    #2 caml_init_domains domain.c:974 (semaphore_lin_test.exe:arm64+0x1001f866c)
+    #3 caml_init_gc gc_ctrl.c:348 (semaphore_lin_test.exe:arm64+0x100208d48)
+    #4 caml_startup_common startup_nat.c:106 (semaphore_lin_test.exe:arm64+0x10023a71c)
+    #5 caml_main startup_nat.c:146 (semaphore_lin_test.exe:arm64+0x10023a8f8)
+    #6 main main.c:37 (semaphore_lin_test.exe:arm64+0x100217818)
+
+  Mutex M1 (0x0001074001f0) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (semaphore_lin_test.exe:arm64+0x100227eac)
+    #2 caml_init_domains domain.c:974 (semaphore_lin_test.exe:arm64+0x1001f866c)
+    #3 caml_init_gc gc_ctrl.c:348 (semaphore_lin_test.exe:arm64+0x100208d48)
+    #4 caml_startup_common startup_nat.c:106 (semaphore_lin_test.exe:arm64+0x10023a71c)
+    #5 caml_main startup_nat.c:146 (semaphore_lin_test.exe:arm64+0x10023a8f8)
+    #6 main main.c:37 (semaphore_lin_test.exe:arm64+0x100217818)
+
+  Mutex M2 (0x0001029d6ad8) created at:
+    #0 pthread_mutex_lock <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x3488c)
+    #1 caml_install_signal_handler signals.c:711 (semaphore_lin_test.exe:arm64+0x10022fcc0)
+    #2 caml_c_call <null> (semaphore_lin_test.exe:arm64+0x10023b1b4)
+    #3 camlStdlib__Sys.set_signal_322 <null> (semaphore_lin_test.exe:arm64+0x100113850)
+    #4 camlEio_posix.fun_1013 <null> (semaphore_lin_test.exe:arm64+0x10005b860)
+    #5 camlStdlib__Domain.body_741 <null> (semaphore_lin_test.exe:arm64+0x10016abb0)
+    #6 caml_start_program <null> (semaphore_lin_test.exe:arm64+0x10023b344)
+    #7 caml_callback_exn callback.c:206 (semaphore_lin_test.exe:arm64+0x1001f4f14)
+    #8 caml_callback_res callback.c:321 (semaphore_lin_test.exe:arm64+0x1001f5864)
+    #9 domain_thread_func domain.c:1245 (semaphore_lin_test.exe:arm64+0x1001f9398)
+
+  Thread T8 (tid=13767654, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (semaphore_lin_test.exe:arm64+0x1001f9088)
+    #2 caml_c_call <null> (semaphore_lin_test.exe:arm64+0x10023b1b4)
+    #3 camlStdlib__Domain.spawn_736 <null> (semaphore_lin_test.exe:arm64+0x10016aaa8)
+    #4 camlStdlib__Array.init_291 <null> (semaphore_lin_test.exe:arm64+0x1001434d8)
+    #5 camlLin_harness.run_parallel_548 <null> (semaphore_lin_test.exe:arm64+0x100007b28)
+    #6 camlLin_harness.fun_1203 <null> (semaphore_lin_test.exe:arm64+0x10000865c)
+    #7 camlQCheck2.loop_4291 <null> (semaphore_lin_test.exe:arm64+0x10002c3b8)
+    #8 camlQCheck2.run_law_4286 <null> (semaphore_lin_test.exe:arm64+0x10002c240)
+    #9 camlQCheck2.check_state_input_4354 <null> (semaphore_lin_test.exe:arm64+0x10002d948)
+    #10 camlQCheck2.check_cell_inner_10771 <null> (semaphore_lin_test.exe:arm64+0x10002dff8)
+    #11 camlQCheck_base_runner.aux_map_1445 <null> (semaphore_lin_test.exe:arm64+0x10000dcdc)
+    #12 camlStdlib__List.map_333 <null> (semaphore_lin_test.exe:arm64+0x1001270d0)
+    #13 camlQCheck_base_runner.run_tests_inner_2445 <null> (semaphore_lin_test.exe:arm64+0x10000d2b4)
+    #14 camlQCheck_base_runner.run_tests_main_inner_3053 <null> (semaphore_lin_test.exe:arm64+0x10000e870)
+    #15 camlDune__exe__Semaphore_lin_test.entry <null> (semaphore_lin_test.exe:arm64+0x1000073f8)
+    #16 caml_program <null> (semaphore_lin_test.exe:arm64+0x10000177c)
+    #17 caml_start_program <null> (semaphore_lin_test.exe:arm64+0x10023b344)
+    #18 caml_startup_common startup_nat.c:127 (semaphore_lin_test.exe:arm64+0x10023a820)
+    #19 caml_main startup_nat.c:146 (semaphore_lin_test.exe:arm64+0x10023a8f8)
+    #20 main main.c:37 (semaphore_lin_test.exe:arm64+0x100217818)
+
+  Thread T6 (tid=13767652, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (semaphore_lin_test.exe:arm64+0x1001f9088)
+    #2 caml_c_call <null> (semaphore_lin_test.exe:arm64+0x10023b1b4)
+    #3 camlStdlib__Domain.spawn_736 <null> (semaphore_lin_test.exe:arm64+0x10016aaa8)
+    #4 camlStdlib__Array.init_291 <null> (semaphore_lin_test.exe:arm64+0x10014346c)
+    #5 camlLin_harness.run_parallel_548 <null> (semaphore_lin_test.exe:arm64+0x100007b28)
+    #6 camlLin_harness.fun_1203 <null> (semaphore_lin_test.exe:arm64+0x10000865c)
+    #7 camlQCheck2.loop_4291 <null> (semaphore_lin_test.exe:arm64+0x10002c3b8)
+    #8 camlQCheck2.run_law_4286 <null> (semaphore_lin_test.exe:arm64+0x10002c240)
+    #9 camlQCheck2.check_state_input_4354 <null> (semaphore_lin_test.exe:arm64+0x10002d948)
+    #10 camlQCheck2.check_cell_inner_10771 <null> (semaphore_lin_test.exe:arm64+0x10002dff8)
+    #11 camlQCheck_base_runner.aux_map_1445 <null> (semaphore_lin_test.exe:arm64+0x10000dcdc)
+    #12 camlStdlib__List.map_333 <null> (semaphore_lin_test.exe:arm64+0x1001270d0)
+    #13 camlQCheck_base_runner.run_tests_inner_2445 <null> (semaphore_lin_test.exe:arm64+0x10000d2b4)
+    #14 camlQCheck_base_runner.run_tests_main_inner_3053 <null> (semaphore_lin_test.exe:arm64+0x10000e870)
+    #15 camlDune__exe__Semaphore_lin_test.entry <null> (semaphore_lin_test.exe:arm64+0x1000073f8)
+    #16 caml_program <null> (semaphore_lin_test.exe:arm64+0x10000177c)
+    #17 caml_start_program <null> (semaphore_lin_test.exe:arm64+0x10023b344)
+    #18 caml_startup_common startup_nat.c:127 (semaphore_lin_test.exe:arm64+0x10023a820)
+    #19 caml_main startup_nat.c:146 (semaphore_lin_test.exe:arm64+0x10023a8f8)
+    #20 main main.c:37 (semaphore_lin_test.exe:arm64+0x100217818)
+
+SUMMARY: ThreadSanitizer: data race signals.c:700 in caml_install_signal_handler
+==================
+================================================================================
+[32;1msuccess[0m (ran 3 tests)
+ThreadSanitizer: reported 1 warnings

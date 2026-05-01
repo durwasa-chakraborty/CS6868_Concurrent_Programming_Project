@@ -1,0 +1,86 @@
+% References for the CS6868 mini-project report.
+% Citation keys used in main.tex:
+%   koval2023cqs  - the CQS paper this work ports from Kotlin to OCaml
+%   lea2005aqs    - Doug Lea's AQS paper, the Java baseline we benchmark against
+%   eio           - Eio, the OCaml fiber/IO runtime providing domain-safe wake-up
+%   qcheck        - qcheck and the multicoretests suite (qcheck-lin, qcheck-stm)
+%   AoMPP         - background reference for shared-memory concurrency
+%   example       - placeholder cited at line 110 of main.tex (Background stub);
+%                   leave defined to silence the BibTeX undefined-citation warning
+%                   until the placeholder \cite{example} is replaced with a real one.
+
+@inproceedings{koval2023cqs,
+  author    = {Koval, Nikita and Khalanskiy, Dmitry and Alistarh, Dan},
+  title     = {{CQS}: A Formally-Verified Framework for Fair and Abortable Synchronization},
+  booktitle = {Proceedings of the 44th {ACM SIGPLAN} International Conference on Programming Language Design and Implementation ({PLDI})},
+  year      = {2023},
+  publisher = {ACM},
+  doi       = {10.1145/3591230},
+  url       = {https://doi.org/10.1145/3591230},
+}
+
+@article{lea2005aqs,
+  author  = {Lea, Doug},
+  title   = {The {java.util.concurrent} synchronizer framework},
+  journal = {Science of Computer Programming},
+  year    = {2005},
+  volume  = {58},
+  number  = {3},
+  pages   = {293--309},
+  doi     = {10.1016/j.scico.2005.03.007},
+  url     = {https://gee.cs.oswego.edu/dl/papers/aqs.pdf},
+}
+
+@misc{eio,
+  author       = {Leonard, Thomas and {Eio contributors}},
+  title        = {{Eio}: Effect-based direct-style {IO} for {OCaml~5}},
+  year         = {2024},
+  howpublished = {Software library, version~1.3},
+  url          = {https://github.com/ocaml-multicore/eio},
+}
+
+@misc{qcheck,
+  author       = {Midtgaard, Jan and Cruanes, Simon and {QCheck contributors}},
+  title        = {{QCheck} and {ocaml-multicoretests}: Property-based and parallel testing for {OCaml}, including {qcheck-lin} and {qcheck-stm}},
+  year         = {2024},
+  howpublished = {Software libraries},
+  url          = {https://github.com/ocaml-multicore/multicoretests},
+}
+
+@book{AoMPP,
+  author    = {Herlihy, Maurice and Shavit, Nir and Luchangco, Victor and Spear, Michael},
+  title     = {The Art of Multiprocessor Programming},
+  edition   = {2nd},
+  publisher = {Morgan Kaufmann},
+  year      = {2020},
+}
+
+@article{kcsrk2020,
+author = {Sivaramakrishnan, KC and Dolan, Stephen and White, Leo and Jaffer, Sadiq and Kelly, Tom and Sahoo, Anmol and Parimala, Sudha and Dhiman, Atul and Madhavapeddy, Anil},
+title = {Retrofitting parallelism onto OCaml},
+year = {2020},
+issue_date = {August 2020},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {4},
+number = {ICFP},
+url = {https://doi.org/10.1145/3408995},
+doi = {10.1145/3408995},
+abstract = {OCaml is an industrial-strength, multi-paradigm programming language, widely used in industry and academia. OCaml is also one of the few modern managed system programming languages to lack support for shared memory parallel programming. This paper describes the design, a full-fledged implementation and evaluation of a mostly-concurrent garbage collector (GC) for the multicore extension of the OCaml programming language. Given that we propose to add parallelism to a widely used programming language with millions of lines of existing code, we face the challenge of maintaining backwards compatibility--not just in terms of the language features but also the performance of single-threaded code running with the new GC. To this end, the paper presents a series of novel techniques and demonstrates that the new GC strikes a balance between performance and feature backwards compatibility for sequential programs and scales admirably on modern multicore processors.},
+journal = {Proc. ACM Program. Lang.},
+month = aug,
+articleno = {113},
+numpages = {30},
+keywords = {concurrent garbage collection, backwards compatibility}
+}
+
+@article{example,
+  author  = {Firstname Lastname and Other Author},
+  title   = {An Example Paper},
+  journal = {Example Journal},
+  year    = {2024},
+  volume  = {1},
+  number  = {1},
+  pages   = {1--10},
+  doi     = {10.0000/example},
+}

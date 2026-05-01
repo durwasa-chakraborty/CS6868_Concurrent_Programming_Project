@@ -1,0 +1,107 @@
+[2Krandom seed: 222728630
+==================
+WARNING: ThreadSanitizer: data race (pid=62033)
+  Atomic read of size 8 at 0x0001006fbfa0 by thread T8 (mutexes: write M0):
+    #0 caml_install_signal_handler signals.c:700 (count_down_latch_lin_test.exe:arm64+0x10022fd04)
+    #1 caml_c_call <null> (count_down_latch_lin_test.exe:arm64+0x10023b264)
+    #2 camlStdlib__Sys.set_signal_322 <null> (count_down_latch_lin_test.exe:arm64+0x100113900)
+    #3 camlEio_posix.fun_1013 <null> (count_down_latch_lin_test.exe:arm64+0x10005b910)
+    #4 camlStdlib__Domain.body_741 <null> (count_down_latch_lin_test.exe:arm64+0x10016ac60)
+    #5 caml_start_program <null> (count_down_latch_lin_test.exe:arm64+0x10023b3f4)
+    #6 caml_callback_exn callback.c:206 (count_down_latch_lin_test.exe:arm64+0x1001f4fc4)
+    #7 caml_callback_res callback.c:321 (count_down_latch_lin_test.exe:arm64+0x1001f5914)
+    #8 domain_thread_func domain.c:1245 (count_down_latch_lin_test.exe:arm64+0x1001f9448)
+
+  Previous write of size 8 at 0x0001006fbfa0 by thread T6 (mutexes: write M1, write M2):
+    #0 caml_modify memory.c:225 (count_down_latch_lin_test.exe:arm64+0x10021d42c)
+    #1 caml_install_signal_handler signals.c:718 (count_down_latch_lin_test.exe:arm64+0x10022fdd4)
+    #2 caml_c_call <null> (count_down_latch_lin_test.exe:arm64+0x10023b264)
+    #3 camlStdlib__Sys.set_signal_322 <null> (count_down_latch_lin_test.exe:arm64+0x100113900)
+    #4 camlEio_posix.fun_1013 <null> (count_down_latch_lin_test.exe:arm64+0x10005b910)
+    #5 camlStdlib__Domain.body_741 <null> (count_down_latch_lin_test.exe:arm64+0x10016ac60)
+    #6 caml_start_program <null> (count_down_latch_lin_test.exe:arm64+0x10023b3f4)
+    #7 caml_callback_exn callback.c:206 (count_down_latch_lin_test.exe:arm64+0x1001f4fc4)
+    #8 caml_callback_res callback.c:321 (count_down_latch_lin_test.exe:arm64+0x1001f5914)
+    #9 domain_thread_func domain.c:1245 (count_down_latch_lin_test.exe:arm64+0x1001f9448)
+
+  Mutex M0 (0x000104e00328) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (count_down_latch_lin_test.exe:arm64+0x100227f5c)
+    #2 caml_init_domains domain.c:974 (count_down_latch_lin_test.exe:arm64+0x1001f871c)
+    #3 caml_init_gc gc_ctrl.c:348 (count_down_latch_lin_test.exe:arm64+0x100208df8)
+    #4 caml_startup_common startup_nat.c:106 (count_down_latch_lin_test.exe:arm64+0x10023a7cc)
+    #5 caml_main startup_nat.c:146 (count_down_latch_lin_test.exe:arm64+0x10023a9a8)
+    #6 main main.c:37 (count_down_latch_lin_test.exe:arm64+0x1002178c8)
+
+  Mutex M1 (0x000104e001f0) created at:
+    #0 pthread_mutex_init <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x344f0)
+    #1 caml_plat_mutex_init platform.c:59 (count_down_latch_lin_test.exe:arm64+0x100227f5c)
+    #2 caml_init_domains domain.c:974 (count_down_latch_lin_test.exe:arm64+0x1001f871c)
+    #3 caml_init_gc gc_ctrl.c:348 (count_down_latch_lin_test.exe:arm64+0x100208df8)
+    #4 caml_startup_common startup_nat.c:106 (count_down_latch_lin_test.exe:arm64+0x10023a7cc)
+    #5 caml_main startup_nat.c:146 (count_down_latch_lin_test.exe:arm64+0x10023a9a8)
+    #6 main main.c:37 (count_down_latch_lin_test.exe:arm64+0x1002178c8)
+
+  Mutex M2 (0x0001004eecf8) created at:
+    #0 pthread_mutex_lock <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x3488c)
+    #1 caml_install_signal_handler signals.c:711 (count_down_latch_lin_test.exe:arm64+0x10022fd70)
+    #2 caml_c_call <null> (count_down_latch_lin_test.exe:arm64+0x10023b264)
+    #3 camlStdlib__Sys.set_signal_322 <null> (count_down_latch_lin_test.exe:arm64+0x100113900)
+    #4 camlEio_posix.fun_1013 <null> (count_down_latch_lin_test.exe:arm64+0x10005b910)
+    #5 camlStdlib__Domain.body_741 <null> (count_down_latch_lin_test.exe:arm64+0x10016ac60)
+    #6 caml_start_program <null> (count_down_latch_lin_test.exe:arm64+0x10023b3f4)
+    #7 caml_callback_exn callback.c:206 (count_down_latch_lin_test.exe:arm64+0x1001f4fc4)
+    #8 caml_callback_res callback.c:321 (count_down_latch_lin_test.exe:arm64+0x1001f5914)
+    #9 domain_thread_func domain.c:1245 (count_down_latch_lin_test.exe:arm64+0x1001f9448)
+
+  Thread T8 (tid=13772962, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (count_down_latch_lin_test.exe:arm64+0x1001f9138)
+    #2 caml_c_call <null> (count_down_latch_lin_test.exe:arm64+0x10023b264)
+    #3 camlStdlib__Domain.spawn_736 <null> (count_down_latch_lin_test.exe:arm64+0x10016ab58)
+    #4 camlStdlib__Array.init_291 <null> (count_down_latch_lin_test.exe:arm64+0x100143588)
+    #5 camlLin_harness.run_parallel_548 <null> (count_down_latch_lin_test.exe:arm64+0x100007c68)
+    #6 camlLin_harness.fun_1203 <null> (count_down_latch_lin_test.exe:arm64+0x10000879c)
+    #7 camlQCheck2.loop_4291 <null> (count_down_latch_lin_test.exe:arm64+0x10002c4f8)
+    #8 camlQCheck2.run_law_4286 <null> (count_down_latch_lin_test.exe:arm64+0x10002c380)
+    #9 camlQCheck2.check_state_input_4354 <null> (count_down_latch_lin_test.exe:arm64+0x10002da88)
+    #10 camlQCheck2.check_cell_inner_10771 <null> (count_down_latch_lin_test.exe:arm64+0x10002e138)
+    #11 camlQCheck_base_runner.aux_map_1445 <null> (count_down_latch_lin_test.exe:arm64+0x10000de1c)
+    #12 camlStdlib__List.map_333 <null> (count_down_latch_lin_test.exe:arm64+0x100127180)
+    #13 camlQCheck_base_runner.run_tests_inner_2445 <null> (count_down_latch_lin_test.exe:arm64+0x10000d3f4)
+    #14 camlQCheck_base_runner.run_tests_main_inner_3053 <null> (count_down_latch_lin_test.exe:arm64+0x10000e9b0)
+    #15 camlDune__exe__Count_down_latch_lin_test.entry <null> (count_down_latch_lin_test.exe:arm64+0x100007538)
+    #16 caml_program <null> (count_down_latch_lin_test.exe:arm64+0x10000177c)
+    #17 caml_start_program <null> (count_down_latch_lin_test.exe:arm64+0x10023b3f4)
+    #18 caml_startup_common startup_nat.c:127 (count_down_latch_lin_test.exe:arm64+0x10023a8d0)
+    #19 caml_main startup_nat.c:146 (count_down_latch_lin_test.exe:arm64+0x10023a9a8)
+    #20 main main.c:37 (count_down_latch_lin_test.exe:arm64+0x1002178c8)
+
+  Thread T6 (tid=13772960, running) created by main thread at:
+    #0 pthread_create <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x32b00)
+    #1 caml_domain_spawn domain.c:1294 (count_down_latch_lin_test.exe:arm64+0x1001f9138)
+    #2 caml_c_call <null> (count_down_latch_lin_test.exe:arm64+0x10023b264)
+    #3 camlStdlib__Domain.spawn_736 <null> (count_down_latch_lin_test.exe:arm64+0x10016ab58)
+    #4 camlStdlib__Array.init_291 <null> (count_down_latch_lin_test.exe:arm64+0x10014351c)
+    #5 camlLin_harness.run_parallel_548 <null> (count_down_latch_lin_test.exe:arm64+0x100007c68)
+    #6 camlLin_harness.fun_1203 <null> (count_down_latch_lin_test.exe:arm64+0x10000879c)
+    #7 camlQCheck2.loop_4291 <null> (count_down_latch_lin_test.exe:arm64+0x10002c4f8)
+    #8 camlQCheck2.run_law_4286 <null> (count_down_latch_lin_test.exe:arm64+0x10002c380)
+    #9 camlQCheck2.check_state_input_4354 <null> (count_down_latch_lin_test.exe:arm64+0x10002da88)
+    #10 camlQCheck2.check_cell_inner_10771 <null> (count_down_latch_lin_test.exe:arm64+0x10002e138)
+    #11 camlQCheck_base_runner.aux_map_1445 <null> (count_down_latch_lin_test.exe:arm64+0x10000de1c)
+    #12 camlStdlib__List.map_333 <null> (count_down_latch_lin_test.exe:arm64+0x100127180)
+    #13 camlQCheck_base_runner.run_tests_inner_2445 <null> (count_down_latch_lin_test.exe:arm64+0x10000d3f4)
+    #14 camlQCheck_base_runner.run_tests_main_inner_3053 <null> (count_down_latch_lin_test.exe:arm64+0x10000e9b0)
+    #15 camlDune__exe__Count_down_latch_lin_test.entry <null> (count_down_latch_lin_test.exe:arm64+0x100007538)
+    #16 caml_program <null> (count_down_latch_lin_test.exe:arm64+0x10000177c)
+    #17 caml_start_program <null> (count_down_latch_lin_test.exe:arm64+0x10023b3f4)
+    #18 caml_startup_common startup_nat.c:127 (count_down_latch_lin_test.exe:arm64+0x10023a8d0)
+    #19 caml_main startup_nat.c:146 (count_down_latch_lin_test.exe:arm64+0x10023a9a8)
+    #20 main main.c:37 (count_down_latch_lin_test.exe:arm64+0x1002178c8)
+
+SUMMARY: ThreadSanitizer: data race signals.c:700 in caml_install_signal_handler
+==================
+================================================================================
+[32;1msuccess[0m (ran 3 tests)
+ThreadSanitizer: reported 1 warnings
