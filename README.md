@@ -1,4 +1,3 @@
 # CS6868_Concurrent_Programming_Project
-Cancellable Queue System (CQS)  A concurrent queue that supports cancelable enqueue operations, allowing threads to revoke pending insertions before they become visible to other threads.
-
-
+- [Link to the Video](https://drive.google.com/file/d/1ybdBYRyyArXw9-euwXhEaEYbDQQnqNxv/view?usp=sharing)
+- [Link to the Report](https://github.com/durwasa-chakraborty/CS6868_Concurrent_Programming_Project/blob/main/report/main.pdf)
